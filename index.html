@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alfifa Translation Services</title>
+    
+    <!-- Google Fonts: Inter (English) & Cairo (Arabic) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+          theme: {
+            extend: {
+              fontFamily: {
+                sans: ['Inter', 'sans-serif'],
+                arabic: ['Cairo', 'sans-serif'],
+              },
+              colors: {
+                brand: {
+                    50: '#fff5f6',  
+                    100: '#ebcdcf', 
+                    200: '#e2b3b8', 
+                    300: '#d89a9f', 
+                    400: '#ce8186', 
+                    500: '#c4686e', 
+                    600: '#b0353e', 
+                    700: '#8e2a32', 
+                    800: '#6b1f25', 
+                    900: '#481519', 
+                }
+              }
+            },
+          },
+        }
+    </script>
+    <style>
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .bg-gradient-brand { background: linear-gradient(135deg, #b0353e 0%, #c4686e 100%); }
+        .nav-link.active { color: #b0353e; font-weight: 700; background-color: rgba(255, 245, 246, 0.8); }
+        
+        .captcha-text { font-family: monospace; letter-spacing: 0.4em; text-decoration: line-through; color: #64748b; }
+        
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d89a9f; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #b0353e; 
+        }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0"
+  }
+}
+</script>
+</head>
+  <body class="font-sans text-slate-600 min-h-screen flex flex-col selection:bg-brand-100 selection:text-brand-800 transition-all duration-300 relative">
+    <div id="root"></div>
+  </body>
+</html>
