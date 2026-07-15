@@ -1,23 +1,11 @@
 export type Language = 'en' | 'ar';
 
-export type View = 'home' | 'about' | 'quote' | 'success';
+export type View = 'home' | 'about' | 'contact' | 'success' | 'services';
 
 export interface TranslationData {
     [key: string]: {
         [key: string]: string;
     }
-}
-
-export interface QuoteFormData {
-    fullName: string;
-    mobile: string;
-    email: string;
-    translationType: string;
-    otherNotes: string;
-    needsAttestation: boolean;
-    needsDelivery: boolean;
-    deliveryAddress: string;
-    file: File | null;
 }
 
 export interface SuccessData {
