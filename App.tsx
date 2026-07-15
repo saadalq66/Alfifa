@@ -3,7 +3,7 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './views/Home';
 import About from './views/About';
-import Quote from './views/Quote';
+import Contact from './views/Quote';
 import Success from './views/Success';
 import { Language, View, SuccessData } from './types';
 import { TRANSLATIONS } from './constants';
@@ -11,7 +11,7 @@ import { TRANSLATIONS } from './constants';
 const App: React.FC = () => {
     // Initial state from localStorage or default 'en'
     const [currentLang, setCurrentLang] = useState<Language>(() => {
-        const saved = localStorage.getItem('alfifa_lang');
+        const saved = localStorage.getItem('360pixpedia_lang');
         return (saved === 'en' || saved === 'ar') ? saved : 'en';
     });
     const [currentView, setCurrentView] = useState<View>('home');
@@ -24,7 +24,7 @@ const App: React.FC = () => {
         document.documentElement.setAttribute('lang', currentLang);
         // Using direct DOM manipulation for body font as per original script logic
         document.body.style.fontFamily = t.font;
-        localStorage.setItem('alfifa_lang', currentLang);
+        localStorage.setItem('360pixpedia_lang', currentLang);
     }, [currentLang]);
 
     const handleToggleLang = () => {
@@ -43,17 +43,17 @@ const App: React.FC = () => {
 
     const handleReset = () => {
         setSuccessData(null);
-        handleNavigate('quote');
+        handleNavigate('contact');
     };
 
     // Background decoration elements matching original design
     const BackgroundElements = () => (
         <div className="fixed inset-0 -z-50 overflow-hidden pointer-events-none bg-slate-50">
-            <div className="absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-brand-50/40"></div>
-            <div className="absolute -top-[10%] -right-[5%] w-[40rem] h-[40rem] bg-brand-100/40 rounded-full blur-[120px] opacity-70"></div>
-            <div className="absolute top-[30%] -left-[10%] w-[35rem] h-[35rem] bg-brand-200/20 rounded-full blur-[100px] opacity-60"></div>
+            <div className="absolute inset-0 bg-gradient-to-b from-white via-cyan-50/40 to-blue-50/40"></div>
+            <div className="absolute -top-[10%] -right-[5%] w-[40rem] h-[40rem] bg-cyan-100/40 rounded-full blur-[120px] opacity-70"></div>
+            <div className="absolute top-[30%] -left-[10%] w-[35rem] h-[35rem] bg-blue-200/20 rounded-full blur-[100px] opacity-60"></div>
             <div className="absolute bottom-0 right-[10%] w-[30rem] h-[30rem] bg-slate-200/60 rounded-full blur-[80px]"></div>
-            <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(#b0353e 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
+            <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(#0891b2 1px, transparent 1px)', backgroundSize: '32px 32px' }}></div>
         </div>
     );
 
@@ -71,7 +71,7 @@ const App: React.FC = () => {
             <main className="flex-grow flex flex-col">
                 {currentView === 'home' && <Home currentLang={currentLang} onNavigate={handleNavigate} />}
                 {currentView === 'about' && <About currentLang={currentLang} />}
-                {currentView === 'quote' && <Quote currentLang={currentLang} onSuccess={handleSuccess} />}
+                {currentView === 'contact' && <Contact currentLang={currentLang} onSuccess={handleSuccess} />}
                 {currentView === 'success' && successData && <Success currentLang={currentLang} data={successData} onReset={handleReset} />}
             </main>
 
