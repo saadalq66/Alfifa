@@ -38,7 +38,7 @@ export function Modal({ open, onClose, title, description, icon, children }: Mod
         if (event.target === ref.current) onClose();
       }}
       aria-labelledby="modal-title"
-      className="m-auto max-h-[calc(100dvh-1.5rem)] w-[min(calc(100%-1.5rem),60rem)] overflow-visible bg-transparent p-0 text-slate-700 backdrop:bg-slate-950/45 backdrop:backdrop-blur-sm open:animate-fade-up"
+      className="m-auto max-h-[calc(100dvh-1.5rem)] outline-none w-[min(calc(100%-1.5rem),60rem)] overflow-visible bg-transparent p-0 text-slate-700 backdrop:bg-slate-950/45 backdrop:backdrop-blur-sm open:animate-fade-up"
     >
       {open && (
         <div className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-3xl bg-white shadow-2xl ring-1 ring-slate-900/5">

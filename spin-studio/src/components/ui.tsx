@@ -90,7 +90,7 @@ export function Switch({ checked, onChange, label, description, disabled, id }: 
 interface SegmentedProps<T extends string | number> {
   value: T;
   onChange: (value: T) => void;
-  options: { value: T; label: ReactNode; hint?: ReactNode }[];
+  options: { value: T; label: ReactNode; hint?: ReactNode; disabled?: boolean }[];
 }
 
 /** A row of mutually exclusive choices, used inside a <fieldset> with a <legend>. */
@@ -105,9 +105,10 @@ export function Segmented<T extends string | number>({ value, onChange, options 
           key={String(option.value)}
           type="button"
           onClick={() => onChange(option.value)}
+          disabled={option.disabled}
           aria-pressed={value === option.value}
           className={cx(
-            'rounded-xl px-2 py-2 text-center transition',
+            'rounded-xl px-2 py-2 text-center transition disabled:cursor-not-allowed disabled:opacity-40',
             value === option.value
               ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5'
               : 'text-slate-500 hover:text-slate-800',

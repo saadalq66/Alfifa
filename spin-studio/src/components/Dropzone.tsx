@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState, type DragEvent } from 'react';
 import { Camera, Images, Layers, Sparkles, Upload } from 'lucide-react';
 import { ACCEPTED_TYPES, MAX_FRAMES } from '../config';
+import { ACCEPTED_VIDEO_TYPES } from '../lib/videoFrames';
 import { Button, cx, Spinner } from './ui';
 
 /** Tracks native file drags over an element (nested enter/leave events included). */
@@ -54,7 +55,7 @@ export const FilePicker = forwardRef<FilePickerHandle, { onFiles: (files: File[]
         ref={input}
         type="file"
         multiple
-        accept={ACCEPTED_TYPES.join(',')}
+        accept={[...ACCEPTED_TYPES, ...ACCEPTED_VIDEO_TYPES, '.mov', '.m4v'].join(',')}
         className="hidden"
         onChange={(event) => {
           const files = Array.from(event.currentTarget.files ?? []);
@@ -101,11 +102,11 @@ export function Dropzone({ onBrowse, onFiles, onSample, busy }: DropzoneProps) {
           </div>
         </div>
         <h3 className="relative text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-          {dragging ? 'Drop to add your photos' : 'Drop your photo sequence here'}
+          {dragging ? 'Drop to add your photos or video' : 'Drop your photos or a video here'}
         </h3>
         <p className="relative mx-auto mt-2 max-w-md text-sm text-slate-500">
-          Select all the shots at once — JPEG or PNG, up to {MAX_FRAMES} photos. They’re ordered by file name and stay
-          on your device.
+          Select all the shots at once (JPEG or PNG, up to {MAX_FRAMES}), or a video of the object turning (MP4, MOV
+          or WebM). Everything stays on your device.
         </p>
         <div className="relative mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button
@@ -115,7 +116,7 @@ export function Dropzone({ onBrowse, onFiles, onSample, busy }: DropzoneProps) {
             disabled={busy}
             icon={busy ? <Spinner className="h-4 w-4" /> : <Images className="h-5 w-5" />}
           >
-            {busy ? 'Importing…' : 'Choose photos'}
+            {busy ? 'Importing…' : 'Choose photos or video'}
           </Button>
           <Button variant="ghost" size="lg" onClick={onSample} disabled={busy} icon={<Sparkles className="h-4 w-4" />}>
             Try sample photos
@@ -132,8 +133,8 @@ export function Dropzone({ onBrowse, onFiles, onSample, busy }: DropzoneProps) {
           },
           {
             icon: Layers,
-            title: 'Shoot 24–72 photos',
-            text: 'Even steps (every 5–15°) give the smoothest spin. More photos, more fluid.',
+            title: 'Photos or one slow turn on video',
+            text: 'Shoot 24–72 photos in even steps — or film the object turning once; frames are taken from the video.',
           },
           {
             icon: Sparkles,
