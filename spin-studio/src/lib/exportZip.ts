@@ -58,9 +58,9 @@ export function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function exportFilename(date = new Date()): string {
+export function exportFilename(extension = 'zip', date = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `360-spin-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.zip`;
+  return `360-spin-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.${extension}`;
 }
 
 function standaloneViewer(files: string[], settings: ViewerSettings): string {

@@ -147,7 +147,7 @@ const STEPS = [
   {
     icon: Share2,
     title: 'Spin, share & embed',
-    text: 'Drag to rotate, auto-play, then copy a view-only link or iframe code — or export everything as a ZIP.',
+    text: 'Drag to rotate, auto-play, then copy a view-only link or iframe code — or download an MP4 video or a ZIP.',
   },
 ];
 

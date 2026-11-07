@@ -87,6 +87,40 @@ export function Switch({ checked, onChange, label, description, disabled, id }: 
   );
 }
 
+interface SegmentedProps<T extends string | number> {
+  value: T;
+  onChange: (value: T) => void;
+  options: { value: T; label: ReactNode; hint?: ReactNode }[];
+}
+
+/** A row of mutually exclusive choices, used inside a <fieldset> with a <legend>. */
+export function Segmented<T extends string | number>({ value, onChange, options }: SegmentedProps<T>) {
+  return (
+    <div
+      className="grid gap-1 rounded-2xl bg-slate-100 p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
+      {options.map((option) => (
+        <button
+          key={String(option.value)}
+          type="button"
+          onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
+          className={cx(
+            'rounded-xl px-2 py-2 text-center transition',
+            value === option.value
+              ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5'
+              : 'text-slate-500 hover:text-slate-800',
+          )}
+        >
+          <span className="block text-sm font-semibold">{option.label}</span>
+          {option.hint && <span className="block text-[11px] text-slate-500">{option.hint}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Spinner({ className }: { className?: string }) {
   return (
     <span

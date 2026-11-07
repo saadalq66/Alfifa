@@ -14,7 +14,7 @@ import type { ViewerSettings } from '../types';
 import { Modal } from './Modal';
 import { SpinViewer } from './SpinViewer';
 import { useToast } from './Toast';
-import { Button, cx, Spinner, Switch } from './ui';
+import { Button, cx, Segmented, Spinner, Switch } from './ui';
 
 interface ShareModalProps {
   open: boolean;
@@ -167,25 +167,11 @@ function ShareBody({
       <div className="min-w-0 space-y-5">
         <fieldset>
           <legend className="mb-2 text-sm font-semibold text-slate-900">Link quality</legend>
-          <div className="grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1">
-            {SHARE_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setPreset(p.id)}
-                aria-pressed={preset === p.id}
-                className={cx(
-                  'rounded-xl px-2 py-2 text-center transition',
-                  preset === p.id
-                    ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/5'
-                    : 'text-slate-500 hover:text-slate-800',
-                )}
-              >
-                <span className="block text-sm font-semibold">{p.label}</span>
-                <span className="block text-[11px] text-slate-500">{p.maxEdge}px</span>
-              </button>
-            ))}
-          </div>
+          <Segmented
+            value={preset}
+            onChange={setPreset}
+            options={SHARE_PRESETS.map((p) => ({ value: p.id, label: p.label, hint: `${p.maxEdge}px` }))}
+          />
           {hasCutouts && settings.backdrop === 'transparent' && (
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
               Transparent frames make links about 4× longer. Choose a solid backdrop in the studio for a shorter link.

@@ -4,6 +4,7 @@ import {
   ArrowDownUp,
   ArrowLeftRight,
   Download,
+  Film,
   Gauge,
   ImagePlus,
   Palette,
@@ -27,6 +28,7 @@ import { ShareModal } from './ShareModal';
 import { SpinViewer, type SpinViewerHandle } from './SpinViewer';
 import { useToast } from './Toast';
 import { Button, cx, Spinner, Switch } from './ui';
+import { VideoModal } from './VideoModal';
 
 interface StudioProps {
   store: FrameStore;
@@ -45,6 +47,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
   const [backdrop, setBackdrop] = useState<BackdropId>('studio');
   const [current, setCurrent] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const bg = useBackgroundRemoval(removeBackgrounds, store);
   const { dragging, handlers } = useFileDrop(onFiles);
@@ -59,10 +62,11 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
 
   const urlKey = frames.map((f) => displayUrl(f, removeBackgrounds)).join('\n');
   const urls = useMemo(() => (urlKey ? urlKey.split('\n') : []), [urlKey]);
-  const shareSources = useMemo(
-    () => (shareOpen ? frames.map((f) => displayBlob(f, removeBackgrounds)) : []),
-    // Deliberately snapshots the frames at the moment the dialog opens.
-    [shareOpen],
+  const dialogOpen = shareOpen || videoOpen;
+  const dialogSources = useMemo(
+    () => (dialogOpen ? frames.map((f) => displayBlob(f, removeBackgrounds)) : []),
+    // Deliberately snapshots the frames at the moment a dialog opens.
+    [dialogOpen],
   );
 
   const busyReason = importing
@@ -130,6 +134,14 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
             icon={exporting ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
           >
             Export Project
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setVideoOpen(true)}
+            disabled={!!busyReason}
+            icon={<Film className="h-4 w-4" />}
+          >
+            Download Video
           </Button>
           <Button
             variant="accent"
@@ -293,9 +305,15 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
       <ShareModal
         open={shareOpen}
         onClose={() => setShareOpen(false)}
-        sources={shareSources}
+        sources={dialogSources}
         settings={settings}
         hasCutouts={removeBackgrounds && frames.some((f) => f.cutout)}
+      />
+      <VideoModal
+        open={videoOpen}
+        onClose={() => setVideoOpen(false)}
+        sources={dialogSources}
+        settings={settings}
       />
     </div>
   );
