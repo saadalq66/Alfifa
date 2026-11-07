@@ -1,7 +1,6 @@
 import { zipSync, strToU8, type Zippable } from 'fflate';
 import { APP_NAME } from '../config';
-import type { Frame, ViewerSettings } from '../types';
-import { displayBlob } from './frames';
+import type { ViewerSettings } from '../types';
 import { renderLayer, type LoadedScene } from './scene';
 
 const EXTENSIONS: Record<string, string> = {
@@ -16,23 +15,31 @@ const EXTENSIONS: Record<string, string> = {
  * and a dependency-free index.html viewer that stacks them, so the ZIP can be
  * hosted as-is and the raw frames stay reusable.
  */
+export interface ExportFrame {
+  blob: Blob;
+  /** Source photo name, or a description for generated in-between frames. */
+  source: string;
+  width: number;
+  height: number;
+  generated: boolean;
+}
+
 export async function exportProjectZip(
-  frames: Frame[],
+  frames: ExportFrame[],
   settings: ViewerSettings,
-  removeBackgrounds: boolean,
+  backgroundRemoved: boolean,
   scene: LoadedScene,
 ): Promise<Blob> {
   const files: Zippable = {};
-  const entries: { file: string; source: string; width: number; height: number }[] = [];
+  const entries: { file: string; source: string; width: number; height: number; generated: boolean }[] = [];
   const digits = Math.max(3, String(frames.length).length);
 
   for (let i = 0; i < frames.length; i++) {
-    const frame = frames[i];
-    const blob = displayBlob(frame, removeBackgrounds);
+    const { blob, source, width, height, generated } = frames[i];
     const file = `frames/frame-${String(i + 1).padStart(digits, '0')}.${EXTENSIONS[blob.type] ?? 'png'}`;
     // Images are already compressed; storing them avoids burning CPU for ~0% gain.
     files[file] = [new Uint8Array(await blob.arrayBuffer()), { level: 0 }];
-    entries.push({ file, source: frame.name, width: frame.width, height: frame.height });
+    entries.push({ file, source, width, height, generated });
   }
 
   const layers: { background: string | null; overlay: string | null } = { background: null, overlay: null };
@@ -51,7 +58,7 @@ export async function exportProjectZip(
     generator: APP_NAME,
     version: 2,
     createdAt: new Date().toISOString(),
-    backgroundRemoved: removeBackgrounds && frames.every((f) => f.cutout),
+    backgroundRemoved,
     viewer: { fps: settings.fps, invertDrag: settings.invertDrag },
     scene: { ...layers, matte: scene.matte },
     frames: entries,

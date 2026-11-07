@@ -16,6 +16,14 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
   can be re-ordered by drag and drop (mouse, long-press on touch screens, or
   keyboard: <kbd>Space</kbd> to pick up, arrow keys to move, <kbd>Space</kbd> to drop).
   "Sort by name", "Reverse" and "Clear all" help fix the sequence quickly.
+- **Fill in missing frames** — with fewer than 24 photos (3 or more), the
+  studio generates in-between frames for every neighbouring pair, including
+  last → first, so the spin reaches at least 24 frames and turns smoothly
+  instead of jumping. Frames are synthesised from the motion between the two
+  photos (see below), in a Web Worker; your photos stay the editable sequence
+  and generated frames follow automatically when you reorder or add photos.
+  It can be switched off, and the share link, video and ZIP all include the
+  generated frames (marked as such in `spin.json`).
 - **Remove Backgrounds** — one switch cuts the object out of every frame with
   [`@imgly/background-removal`](https://github.com/imgly/background-removal-js),
   running in a Web Worker (WebGPU when available, WASM otherwise) so the UI stays
@@ -106,6 +114,27 @@ embeds, but chat apps may refuse to send them — use *Small* plus every other
 frame for links you intend to paste into messages. A truncated link shows a
 friendly "this link is incomplete" page rather than a broken viewer.
 
+## How in-between frames are made
+
+No AI model or download is involved; it runs as plain TypeScript in a worker
+(`src/lib/interpolate/flow.ts`):
+
+1. **Motion estimate.** Semi-global matching (a stereo-vision technique) finds
+   the large, mostly sideways motion of a turning object; coarse-to-fine
+   Horn–Schunck refinement adds detail; the field is then smoothed, weighted
+   by texture, because noise would tear textures when warping.
+2. **Projection.** Each photo's pixels are pushed to where they sit at the
+   in-between time; areas no pixel reaches are hidden in that photo.
+3. **Synthesis.** Both photos are warped to that time. Where they agree they
+   are blended; where they disagree, the photo nearer in time wins (region by
+   region), which avoids the ghostly double exposure of a cross-fade.
+
+Quality depends on how far apart the photos are. On a test object with known
+in-between views, frames between photos 30° apart look close to the real
+thing (crisp text, slightly bent outlines); at 45° they are clearly better
+than a cross-fade but can look a little rubbery. Shooting more photos always
+gives the most realistic spin.
+
 ## Background removal
 
 - The AI model (~88 MB) and the onnxruntime WASM binary are downloaded from
@@ -155,6 +184,7 @@ src/
     exportZip.ts           ZIP export with a standalone viewer
     video.ts, videoPlan.ts MP4/WebM rendering (mediabunny + WebCodecs) and its timing maths
     videoFrames.ts         capturing frames from an uploaded video (unit tested)
+    interpolate/           in-between frame generation: flow + synthesis, worker, client (unit tested)
     bgRemoval/             Web Worker + client for @imgly/background-removal
     sample.ts              procedural sample product
 ```
