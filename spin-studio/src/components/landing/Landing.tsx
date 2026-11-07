@@ -85,12 +85,12 @@ export function Hero({ onUpload, onSample }: { onUpload: () => void; onSample: (
             <span className="bg-gradient-to-r from-sky-500 to-blue-600 bg-clip-text text-transparent">360° spin</span>
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-pretty text-slate-600 sm:text-lg lg:mx-0">
-            Upload a sequence of shots of a car, a watch or any product. Put them in order, remove the
-            backgrounds with on-device AI, then share a link or embed the spin on your website.
+            Upload a sequence of shots — or a video — of a car, a watch or any product. Put them in order,
+            remove the backgrounds with on-device AI, then share a link or embed the spin on your website.
           </p>
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
             <Button variant="accent" size="lg" onClick={onUpload} icon={<Images className="h-5 w-5" />} className="w-full sm:w-auto">
-              Upload photos
+              Upload photos or video
             </Button>
             <Button variant="secondary" size="lg" onClick={onSample} icon={<Sparkles className="h-4.5 w-4.5" />} className="w-full sm:w-auto">
               Try a sample
@@ -137,7 +137,7 @@ const STEPS = [
   {
     icon: Images,
     title: 'Upload & order',
-    text: 'Drop in your photo sequence. Files are sorted by name — drag thumbnails to fine-tune the order.',
+    text: 'Drop in your photo sequence or a video of the object turning. Drag thumbnails to fine-tune the order.',
   },
   {
     icon: Wand,

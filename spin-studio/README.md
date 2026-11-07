@@ -6,6 +6,11 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
 
 ## Features
 
+- **Upload photos or a video** — pick a video of the object turning (MP4, MOV,
+  WebM — anything the browser can play) and a dialog lets you mark one full turn
+  with Start/End sliders and choose 24/36/48/72 frames; they are captured
+  evenly across that turn, in the browser, and added like photos (replacing or
+  appending to the current frames).
 - **Upload & order** — drop or pick many JPEG/PNG/WebP photos at once. They are
   sorted naturally by file name (`IMG_2` before `IMG_10`), and the thumbnail grid
   can be re-ordered by drag and drop (mouse, long-press on touch screens, or
@@ -124,6 +129,7 @@ src/
     FrameGrid.tsx          sortable thumbnail grid (dnd-kit)
     ShareModal.tsx         link quality, preview, link + embed code
     VideoModal.tsx         video length/resolution, render progress, preview + download
+    VideoImportModal.tsx   trim one turn of an uploaded video and capture its frames
     Studio.tsx, Dropzone.tsx, Modal.tsx, Toast.tsx, ui.tsx, landing/
   hooks/
     useFrames.ts           ordered frame list and object-URL lifecycle
@@ -136,6 +142,7 @@ src/
     backdrops.ts           backdrop definitions shared by CSS, canvas and export
     exportZip.ts           ZIP export with a standalone viewer
     video.ts, videoPlan.ts MP4/WebM rendering (mediabunny + WebCodecs) and its timing maths
+    videoFrames.ts         capturing frames from an uploaded video (unit tested)
     bgRemoval/             Web Worker + client for @imgly/background-removal
     sample.ts              procedural sample product
 ```

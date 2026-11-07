@@ -114,7 +114,7 @@ export function FrameGrid({
               className="group flex aspect-square w-full flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-slate-300 text-slate-400 transition hover:border-sky-400 hover:bg-sky-50/60 hover:text-sky-600 active:scale-95"
             >
               <ImagePlus className="h-6 w-6 transition-transform group-hover:-translate-y-0.5 group-hover:scale-110" />
-              <span className="text-xs font-semibold">Add photos</span>
+              <span className="text-xs font-semibold">Add more</span>
             </button>
           </li>
         </ul>
