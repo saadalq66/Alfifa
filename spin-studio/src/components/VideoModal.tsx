@@ -222,7 +222,7 @@ function VideoBody({
 
       <ul className="space-y-1.5 rounded-2xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
         <li>
-          {sources.length} photos, one full turn every {plan.turnDuration.toFixed(1)} s — change it with{' '}
+          {sources.length} frames, one full turn every {plan.turnDuration.toFixed(1)} s — change it with{' '}
           <span className="font-medium text-slate-700">Auto-rotate speed</span>.
         </li>
         <li>

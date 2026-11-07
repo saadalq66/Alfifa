@@ -5,6 +5,7 @@ import {
   ArrowLeftRight,
   Download,
   Film,
+  Sparkles,
   Gauge,
   ImagePlus,
   RefreshCw,
@@ -14,6 +15,8 @@ import {
   Wand,
 } from 'lucide-react';
 import { useBackgroundRemoval, type ModelState } from '../hooks/useBackgroundRemoval';
+import { useInBetweenFrames, type Photo } from '../hooks/useInBetweenFrames';
+import { MIN_PHOTOS, TARGET_FRAMES } from '../lib/interpolate/plan';
 import type { FrameStore } from '../hooks/useFrames';
 import { downloadBlob, exportFilename, exportProjectZip } from '../lib/exportZip';
 import { displayBlob, displayUrl } from '../lib/frames';
@@ -51,21 +54,44 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [fillFrames, setFillFrames] = useState(true);
   const bg = useBackgroundRemoval(removeBackgrounds, store);
   const { dragging, handlers } = useFileDrop(onFiles);
-  // Stable, so memoised tiles don't all re-render on every frame of a spin.
-  const jumpTo = useCallback((index: number) => viewer.current?.goTo(index), []);
+
+  // The photos as currently shown (cut-outs when background removal is on).
+  const photoKey = frames
+    .map((f) => `${f.id}:${removeBackgrounds && f.cutout ? 'cut' : 'photo'}`)
+    .join('\n');
+  const photos = useMemo<Photo[]>(
+    () =>
+      frames.map((f) => ({
+        key: `${f.id}:${removeBackgrounds && f.cutout ? 'cut' : 'photo'}`,
+        blob: displayBlob(f, removeBackgrounds),
+        url: displayUrl(f, removeBackgrounds),
+      })),
+    // photoKey changes exactly when any photo's displayed image changes.
+    [photoKey],
+  );
+  // Generate in-between frames once imports and background removal have settled.
+  const fill = useInBetweenFrames(photos, fillFrames && !importing && !bg.processing);
+  const sequence = fill.sequence;
+  const canFill = frames.length >= MIN_PHOTOS && frames.length < TARGET_FRAMES;
+
+  // The viewer plays the whole sequence; the grid shows (and highlights) photos.
+  const perPhoto = fill.perPhoto;
+  const currentPhoto = sequence[current]?.photoIndex ?? 0;
+  const jumpTo = useCallback((index: number) => viewer.current?.goTo(index * perPhoto), [perPhoto]);
 
   const settings: ViewerSettings = {
-    fps: customFps ?? defaultFps(frames.length),
+    fps: customFps ?? defaultFps(sequence.length),
     invertDrag,
   };
 
-  const urlKey = frames.map((f) => displayUrl(f, removeBackgrounds)).join('\n');
+  const urlKey = sequence.map((item) => item.url).join('\n');
   const urls = useMemo(() => (urlKey ? urlKey.split('\n') : []), [urlKey]);
   const dialogOpen = shareOpen || videoOpen;
   const dialogSources = useMemo(
-    () => (dialogOpen ? frames.map((f) => displayBlob(f, removeBackgrounds)) : []),
+    () => (dialogOpen ? sequence.map((item) => item.blob) : []),
     // Deliberately snapshots the frames at the moment a dialog opens.
     [dialogOpen],
   );
@@ -74,14 +100,28 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
     ? 'Wait for the import to finish'
     : bg.processing
       ? 'Wait for background removal to finish'
-      : null;
+      : fill.generating
+        ? 'Wait for the in-between frames to be created'
+        : null;
 
   const handleExport = async () => {
     setExporting(true);
     try {
-      const zip = await exportProjectZip(frames, settings, removeBackgrounds, loadedScene);
+      const items = sequence.map((item) => {
+        const photo = frames[item.photoIndex];
+        const next = frames[(item.photoIndex + 1) % frames.length];
+        return {
+          blob: item.blob,
+          source: item.generated ? `generated between ${photo.name} and ${next.name}` : photo.name,
+          width: photo.width,
+          height: photo.height,
+          generated: item.generated,
+        };
+      });
+      const backgroundRemoved = removeBackgrounds && frames.every((f) => f.cutout);
+      const zip = await exportProjectZip(items, settings, backgroundRemoved, loadedScene);
       downloadBlob(zip, exportFilename());
-      toast(`Exported ${frames.length} frames (${formatBytes(zip.size)})`);
+      toast(`Exported ${items.length} frames (${formatBytes(zip.size)})`);
     } catch (error) {
       console.error(error);
       toast('Export failed. Please try again.', 'error');
@@ -123,7 +163,8 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-500">
-          <span className="font-semibold text-slate-900">{frames.length} frames</span>
+          <span className="font-semibold text-slate-900">{sequence.length} frames</span>
+          {perPhoto > 1 && ` (${frames.length} photos + ${sequence.length - frames.length} generated)`}
           {' · '}
           {first.width}×{first.height}
         </p>
@@ -199,7 +240,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
                   <Gauge className="h-4 w-4 text-slate-400" /> Auto-rotate speed
                 </label>
                 <span className="text-xs tabular-nums text-slate-500">
-                  {(frames.length / settings.fps).toFixed(1)} s / turn
+                  {(sequence.length / settings.fps).toFixed(1)} s / turn
                 </span>
               </div>
               <input
@@ -242,6 +283,11 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
                 <span className="inline-flex items-center gap-1.5 font-medium text-sky-700">
                   <Spinner className="h-3 w-3" /> Importing {importing.done} / {importing.total}…
                 </span>
+              ) : fill.generating ? (
+                <span className="inline-flex items-center gap-1.5 font-medium text-sky-700">
+                  <Spinner className="h-3 w-3" /> Creating in-between frames… {fill.generating.done} /{' '}
+                  {fill.generating.total}
+                </span>
               ) : (
                 <>
                   Drag to reorder{' '}
@@ -269,9 +315,30 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
             </Button>
           </div>
         </div>
+        {canFill && (
+          <div className="mb-4 rounded-2xl bg-sky-50/70 p-4 ring-1 ring-sky-100">
+            <Switch
+              id="fill-frames"
+              checked={fillFrames}
+              onChange={setFillFrames}
+              label={
+                <span className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-sky-600" /> Fill in to {TARGET_FRAMES}+ frames
+                </span>
+              }
+              description={
+                fill.failed
+                  ? 'Couldn’t create in-between frames for these photos — the spin uses your photos only.'
+                  : perPhoto > 1
+                    ? `${frames.length} photos + ${sequence.length - frames.length} in-between frames, created from the motion between neighbouring photos. More photos still look best.`
+                    : `${frames.length} photos make a jumpy spin. In-between frames are created from the motion between neighbouring photos.`
+              }
+            />
+          </div>
+        )}
         <FrameGrid
           frames={frames}
-          currentIndex={current}
+          currentIndex={currentPhoto}
           removeBackgrounds={removeBackgrounds}
           onMove={store.move}
           onRemove={store.remove}
