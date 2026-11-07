@@ -4,6 +4,7 @@ import { exportFilename } from '../lib/exportZip';
 import { formatBytes } from '../lib/share';
 import { canRenderVideo, renderSpinVideo, VideoUnsupportedError, type RenderedVideo } from '../lib/video';
 import { planVideo, videoSize } from '../lib/videoPlan';
+import type { LoadedScene } from '../lib/scene';
 import type { ViewerSettings } from '../types';
 import { Modal } from './Modal';
 import { useToast } from './Toast';
@@ -14,9 +15,10 @@ interface VideoModalProps {
   onClose: () => void;
   sources: Blob[];
   settings: ViewerSettings;
+  scene: LoadedScene;
 }
 
-export function VideoModal({ open, onClose, sources, settings }: VideoModalProps) {
+export function VideoModal({ open, onClose, sources, settings, scene }: VideoModalProps) {
   return (
     <Modal
       open={open}
@@ -25,7 +27,7 @@ export function VideoModal({ open, onClose, sources, settings }: VideoModalProps
       title="Download Video"
       description="Turn the spin into a video you can post or send anywhere."
     >
-      {open && <VideoBody sources={sources} settings={settings} />}
+      {open && <VideoBody sources={sources} settings={settings} scene={scene} />}
     </Modal>
   );
 }
@@ -42,7 +44,15 @@ const SIZES = [
   { value: 1080, label: '1080p' },
 ];
 
-function VideoBody({ sources, settings }: { sources: Blob[]; settings: ViewerSettings }) {
+function VideoBody({
+  sources,
+  settings,
+  scene,
+}: {
+  sources: Blob[];
+  settings: ViewerSettings;
+  scene: LoadedScene;
+}) {
   const toast = useToast();
   const [turns, setTurns] = useState(2);
   const [shortEdge, setShortEdge] = useState(1080);
@@ -85,7 +95,7 @@ function VideoBody({ sources, settings }: { sources: Blob[]; settings: ViewerSet
         turns,
         shortEdge,
         spinFps: settings.fps,
-        backdrop: settings.backdrop,
+        scene,
         signal: controller.signal,
         onProgress: (progress) => setPhase({ kind: 'rendering', progress }),
       });
@@ -216,9 +226,9 @@ function VideoBody({ sources, settings }: { sources: Blob[]; settings: ViewerSet
           <span className="font-medium text-slate-700">Auto-rotate speed</span>.
         </li>
         <li>
-          {settings.backdrop === 'transparent'
+          {scene.transparent
             ? 'Videos can’t be transparent, so a white background is used.'
-            : 'Uses the backdrop you picked in the studio.'}
+            : 'Uses the background, text and logo you set in the studio.'}
         </li>
         <li className="flex gap-1.5">
           <Lock className="mt-0.5 h-3 w-3 shrink-0" /> Rendered on your device — nothing is uploaded.

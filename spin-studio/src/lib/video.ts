@@ -1,5 +1,4 @@
-import type { BackdropId } from '../types';
-import { paintBackdrop } from './backdrops';
+import { hasOverlay, paintOver, paintUnder, type LoadedScene } from './scene';
 import { planVideo, VIDEO_FPS, videoSize } from './videoPlan';
 
 export interface VideoOptions {
@@ -8,7 +7,7 @@ export interface VideoOptions {
   shortEdge: number;
   /** Auto-rotate speed in photos per second. */
   spinFps: number;
-  backdrop: BackdropId;
+  scene: LoadedScene;
   onProgress?: (ratio: number) => void;
   signal?: AbortSignal;
 }
@@ -73,6 +72,7 @@ export async function renderSpinVideo(sources: Blob[], options: VideoOptions): P
   output.addVideoTrack(track, { frameRate: VIDEO_FPS });
 
   const plan = planVideo(sources.length, options.spinFps, options.turns);
+  const overlay = hasOverlay(options.scene);
   let written = 0;
   try {
     await output.start();
@@ -80,8 +80,8 @@ export async function renderSpinVideo(sources: Blob[], options: VideoOptions): P
       for (const source of sources) {
         options.signal?.throwIfAborted();
         const image = await createImageBitmap(source);
-        // Videos have no transparency, so a transparent backdrop becomes white.
-        if (!paintBackdrop(ctx, options.backdrop, width, height)) {
+        // Videos have no transparency, so a transparent background becomes white.
+        if (!paintUnder(ctx, options.scene, width, height)) {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, width, height);
         }
@@ -90,6 +90,7 @@ export async function renderSpinVideo(sources: Blob[], options: VideoOptions): P
         const h = image.height * scale;
         ctx.drawImage(image, (width - w) / 2, (height - h) / 2, w, h);
         image.close();
+        if (overlay) paintOver(ctx, options.scene, width, height);
         for (let i = 0; i < plan.hold; i++) {
           await track.add(written / VIDEO_FPS, 1 / VIDEO_FPS);
           written++;

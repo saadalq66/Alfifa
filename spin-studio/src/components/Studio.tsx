@@ -7,7 +7,6 @@ import {
   Film,
   Gauge,
   ImagePlus,
-  Palette,
   RefreshCw,
   Share2,
   Trash,
@@ -16,14 +15,16 @@ import {
 } from 'lucide-react';
 import { useBackgroundRemoval, type ModelState } from '../hooks/useBackgroundRemoval';
 import type { FrameStore } from '../hooks/useFrames';
-import { BACKDROPS, backdropCss } from '../lib/backdrops';
 import { downloadBlob, exportFilename, exportProjectZip } from '../lib/exportZip';
 import { displayBlob, displayUrl } from '../lib/frames';
 import { formatBytes } from '../lib/share';
 import { defaultFps } from '../lib/spinMath';
-import type { BackdropId, ViewerSettings } from '../types';
+import { useLoadedScene } from '../hooks/useScene';
+import { DEFAULT_SCENE, type Scene } from '../lib/scene';
+import type { ViewerSettings } from '../types';
 import { Dropzone, useFileDrop } from './Dropzone';
 import { FrameGrid } from './FrameGrid';
+import { ScenePanel } from './ScenePanel';
 import { ShareModal } from './ShareModal';
 import { SpinViewer, type SpinViewerHandle } from './SpinViewer';
 import { useToast } from './Toast';
@@ -44,7 +45,8 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
   const [removeBackgrounds, setRemoveBackgrounds] = useState(false);
   const [customFps, setCustomFps] = useState<number | null>(null);
   const [invertDrag, setInvertDrag] = useState(false);
-  const [backdrop, setBackdrop] = useState<BackdropId>('studio');
+  const [scene, setScene] = useState<Scene>(DEFAULT_SCENE);
+  const loadedScene = useLoadedScene(scene);
   const [current, setCurrent] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -57,7 +59,6 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
   const settings: ViewerSettings = {
     fps: customFps ?? defaultFps(frames.length),
     invertDrag,
-    backdrop,
   };
 
   const urlKey = frames.map((f) => displayUrl(f, removeBackgrounds)).join('\n');
@@ -78,7 +79,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const zip = await exportProjectZip(frames, settings, removeBackgrounds);
+      const zip = await exportProjectZip(frames, settings, removeBackgrounds, loadedScene);
       downloadBlob(zip, exportFilename());
       toast(`Exported ${frames.length} frames (${formatBytes(zip.size)})`);
     } catch (error) {
@@ -161,7 +162,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
           frames={urls}
           fps={settings.fps}
           invertDrag={invertDrag}
-          backdrop={backdrop}
+          scene={loadedScene}
           aspect={first.width / first.height}
           onIndexChange={setCurrent}
         />
@@ -223,33 +224,11 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
               }
               description="Turn on if dragging spins the object the “wrong” way."
             />
+          </Panel>
 
-            <fieldset>
-              <legend className="mb-2.5 flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Palette className="h-4 w-4 text-slate-400" /> Backdrop
-              </legend>
-              <div className="flex flex-wrap gap-2.5">
-                {BACKDROPS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setBackdrop(option.id)}
-                    aria-pressed={backdrop === option.id}
-                    aria-label={option.label}
-                    title={option.label}
-                    className={cx(
-                      'h-9 w-9 rounded-full ring-1 ring-slate-900/10 transition hover:scale-110 active:scale-95',
-                      option.id === 'transparent' && 'bg-checker',
-                      backdrop === option.id && 'ring-2 ring-sky-500 ring-offset-2',
-                    )}
-                    style={option.id === 'transparent' ? undefined : { background: backdropCss(option.id) }}
-                  />
-                ))}
-              </div>
-              {removeBackgrounds ? null : (
-                <p className="mt-2 text-xs text-slate-500">Most visible once backgrounds are removed.</p>
-              )}
-            </fieldset>
+          <Panel>
+            <h3 className="text-sm font-semibold text-slate-900">Background &amp; branding</h3>
+            <ScenePanel scene={scene} onChange={setScene} removeBackgrounds={removeBackgrounds} />
           </Panel>
         </aside>
       </div>
@@ -307,6 +286,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
         onClose={() => setShareOpen(false)}
         sources={dialogSources}
         settings={settings}
+        scene={loadedScene}
         hasCutouts={removeBackgrounds && frames.some((f) => f.cutout)}
       />
       <VideoModal
@@ -314,6 +294,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
         onClose={() => setVideoOpen(false)}
         sources={dialogSources}
         settings={settings}
+        scene={loadedScene}
       />
     </div>
   );

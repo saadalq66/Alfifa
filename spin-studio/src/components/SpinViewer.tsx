@@ -1,8 +1,7 @@
-import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { Hand, Maximize2, Minimize2, Pause, Play, RotateCcw } from 'lucide-react';
-import { SpinEngine, type SpinState } from '../lib/spinEngine';
-import type { BackdropId } from '../types';
-import { backdropCss, backdropOuterColor } from '../lib/backdrops';
+import { hasOverlay, paintOver, paintUnder, type LoadedScene } from '../lib/scene';
+import { SpinEngine, type SpinLayers, type SpinState } from '../lib/spinEngine';
 import { cx } from './ui';
 
 export interface SpinViewerHandle {
@@ -16,7 +15,10 @@ interface SpinViewerProps {
   fps: number;
   invertDrag?: boolean;
   autoplay?: boolean;
-  backdrop: BackdropId;
+  /** Background, text and logo painted live around each frame. */
+  scene?: LoadedScene | null;
+  /** For frames that already have their scene baked in: the colour around letterboxed frames. */
+  matte?: string;
   variant: Variant;
   /** Width / height of the frames, used to size the stage. */
   aspect?: number;
@@ -39,7 +41,8 @@ export function SpinViewer({
   fps,
   invertDrag = false,
   autoplay = false,
-  backdrop,
+  scene = null,
+  matte,
   variant,
   aspect = 4 / 3,
   onIndexChange,
@@ -91,6 +94,20 @@ export function SpinViewer({
     }
   }, [frames]);
 
+  const layers = useMemo<SpinLayers | null>(() => {
+    if (!scene) return null;
+    const overlay = hasOverlay(scene);
+    if (scene.transparent && !overlay) return null;
+    return {
+      under: (ctx, w, h) => paintUnder(ctx, scene, w, h),
+      over: overlay ? (ctx, w, h) => paintOver(ctx, scene, w, h) : undefined,
+    };
+  }, [scene]);
+
+  useEffect(() => {
+    engineRef.current?.setLayers(layers);
+  }, [layers]);
+
   useImperativeHandle(ref, () => ({ goTo: (index) => engineRef.current?.goTo(index) }), []);
 
   useEffect(() => {
@@ -112,11 +129,10 @@ export function SpinViewer({
   const showHint = !state.interacted && state.count > 1 && !firstFramePending;
   const isEmbed = variant === 'embed';
 
-  // The backdrop gradient sits exactly behind the (contain-fitted) frame, and its
-  // edge colour fills any letterbox space. Share links bake this same gradient
-  // into their frames, so baked and live backdrops line up seamlessly.
-  const checker = backdrop === 'transparent' && !isEmbed;
-  const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 4 / 3;
+  // The scene is painted in the frame's own box; the matte fills any letterbox
+  // space around it. In the editor a transparent scene shows a checkerboard.
+  const outer = scene ? scene.matte : (matte ?? 'transparent');
+  const checker = !isEmbed && outer === 'transparent';
 
   const stage = (
     <div
@@ -129,22 +145,10 @@ export function SpinViewer({
         variant === 'hero' && 'shadow-2xl shadow-sky-900/10',
       )}
       style={{
-        containerType: 'size',
-        background: checker ? undefined : backdropOuterColor(backdrop),
+        background: checker ? undefined : outer,
         aspectRatio: isEmbed ? undefined : String(clampAspect(aspect)),
       }}
     >
-      {!checker && backdrop !== 'transparent' && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 m-auto"
-          style={{
-            width: `min(100cqw, calc(100cqh * ${ratio}))`,
-            height: `min(100cqh, calc(100cqw / ${ratio}))`,
-            background: backdropCss(backdrop),
-          }}
-        />
-      )}
 
       <div
         ref={surfaceRef}

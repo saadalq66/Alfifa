@@ -1,6 +1,6 @@
 export type BackdropId = 'studio' | 'white' | 'gray' | 'dark' | 'transparent';
 
-/** Order matters: the index is what share links store. Append new backdrops at the end. */
+/** Order matters: version 1 share links store the index. Append new backdrops at the end. */
 export const BACKDROP_IDS: readonly BackdropId[] = ['studio', 'white', 'gray', 'dark', 'transparent'];
 
 export interface ViewerSettings {
@@ -8,7 +8,6 @@ export interface ViewerSettings {
   fps: number;
   /** Flip which way dragging turns the object. */
   invertDrag: boolean;
-  backdrop: BackdropId;
 }
 
 export type BgStatus = 'idle' | 'processing' | 'done' | 'error';

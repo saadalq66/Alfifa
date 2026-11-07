@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Code, Images, Rotate3d, Share2, ShieldCheck, Sparkles, Wand, Zap } from 'lucide-react';
 import { APP_NAME } from '../../config';
 import { renderSampleFrames } from '../../lib/sample';
+import { presetScene } from '../../lib/scene';
 import { SpinViewer } from '../SpinViewer';
 import { Button } from '../ui';
 
@@ -56,6 +57,8 @@ function useDemoFrames() {
   }, []);
   return urls;
 }
+
+const HERO_SCENE = presetScene('studio');
 
 const prefersReducedMotion = () =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -117,7 +120,7 @@ export function Hero({ onUpload, onSample }: { onUpload: () => void; onSample: (
               frames={demo}
               fps={14}
               autoplay={!prefersReducedMotion()}
-              backdrop="studio"
+              scene={HERO_SCENE}
               aspect={4 / 3}
             />
           </div>

@@ -10,6 +10,7 @@ import {
   URL_SOFT_LIMIT,
   type SharePresetId,
 } from '../lib/share';
+import type { LoadedScene } from '../lib/scene';
 import type { ViewerSettings } from '../types';
 import { Modal } from './Modal';
 import { SpinViewer } from './SpinViewer';
@@ -21,7 +22,9 @@ interface ShareModalProps {
   onClose: () => void;
   sources: Blob[];
   settings: ViewerSettings;
-  /** Frames are cut-outs, so a transparent backdrop keeps an alpha channel. */
+  /** Background, text and logo, baked into the shared frames. */
+  scene: LoadedScene;
+  /** Frames are cut-outs, so a transparent background keeps an alpha channel. */
   hasCutouts: boolean;
 }
 
@@ -35,7 +38,7 @@ interface Generated {
 
 const REDUCE_FRAMES_THRESHOLD = 24;
 
-export function ShareModal({ open, onClose, sources, settings, hasCutouts }: ShareModalProps) {
+export function ShareModal({ open, onClose, sources, settings, scene, hasCutouts }: ShareModalProps) {
   return (
     <Modal
       open={open}
@@ -44,7 +47,7 @@ export function ShareModal({ open, onClose, sources, settings, hasCutouts }: Sha
       title="Share Project"
       description="A view-only link and embed code — everything lives inside the link, nothing is uploaded."
     >
-      {open && <ShareBody sources={sources} settings={settings} hasCutouts={hasCutouts} />}
+      {open && <ShareBody sources={sources} settings={settings} scene={scene} hasCutouts={hasCutouts} />}
     </Modal>
   );
 }
@@ -52,10 +55,12 @@ export function ShareModal({ open, onClose, sources, settings, hasCutouts }: Sha
 function ShareBody({
   sources,
   settings,
+  scene,
   hasCutouts,
 }: {
   sources: Blob[];
   settings: ViewerSettings;
+  scene: LoadedScene;
   hasCutouts: boolean;
 }) {
   const toast = useToast();
@@ -78,7 +83,7 @@ function ShareBody({
     const id = ++job.current;
     setBusy(true);
     setError(null);
-    encodeShareFrames(selected, preset, settings.backdrop)
+    encodeShareFrames(selected, preset, scene)
       .then((result) => id === job.current && setEncoded(result))
       .catch((err: unknown) => {
         if (id !== job.current) return;
@@ -86,7 +91,7 @@ function ShareBody({
         setError('Could not prepare the share link. Try a smaller quality setting.');
       })
       .finally(() => id === job.current && setBusy(false));
-  }, [selected, preset, settings.backdrop]);
+  }, [selected, preset, scene]);
 
   // Object URLs for the preview depend only on the encoded frames, so toggling
   // autoplay never reloads the preview.
@@ -110,7 +115,7 @@ function ShareBody({
     const url = buildShareUrl({
       autoplay,
       invertDrag: settings.invertDrag,
-      backdrop: settings.backdrop,
+      matte: scene.matte,
       fps,
       format: encoded.format,
       frames: encoded.frames,
@@ -122,7 +127,7 @@ function ShareBody({
       height: encoded.height,
       frameCount: encoded.frames.length,
     };
-  }, [encoded, autoplay, settings.invertDrag, settings.backdrop, fps]);
+  }, [encoded, autoplay, settings.invertDrag, scene.matte, fps]);
 
   const copy = async (text: string, what: string) => {
     try {
@@ -147,7 +152,7 @@ function ShareBody({
               frames={previewUrls}
               fps={fps}
               invertDrag={settings.invertDrag}
-              backdrop={settings.backdrop}
+              matte={scene.matte}
               aspect={generated.width / generated.height}
             />
           ) : (
@@ -172,9 +177,9 @@ function ShareBody({
             onChange={setPreset}
             options={SHARE_PRESETS.map((p) => ({ value: p.id, label: p.label, hint: `${p.maxEdge}px` }))}
           />
-          {hasCutouts && settings.backdrop === 'transparent' && (
+          {hasCutouts && scene.transparent && (
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Transparent frames make links about 4× longer. Choose a solid backdrop in the studio for a shorter link.
+              Transparent frames make links about 4× longer. Choose a background in the studio for a shorter link.
             </p>
           )}
         </fieldset>

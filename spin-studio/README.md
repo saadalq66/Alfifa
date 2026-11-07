@@ -21,6 +21,12 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
   running in a Web Worker (WebGPU when available, WASM otherwise) so the UI stays
   smooth. Each thumbnail shows its own progress ring; results are cached, so
   toggling off and on is instant.
+- **Background & branding** — pick a preset backdrop, any **custom colour**
+  or an uploaded **picture** (shown around the object once backgrounds are
+  removed), add a **text** caption (top/bottom, three sizes, any colour, with
+  an optional label behind it) and a **logo** (any corner, adjustable size; PNG,
+  JPEG, WebP or SVG). The same painter draws it in the studio, share links and
+  embeds, videos and the ZIP export, so they all look identical.
 - **360° viewer** — drag with the mouse, swipe on touch screens, use a trackpad's
   horizontal swipe or the arrow keys. Releasing a drag keeps spinning with
   momentum. Controls below the viewer: **Play/Pause Auto-Rotate** and **Reset View**
@@ -34,8 +40,10 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
   phones, "Share or save to Photos". Browsers that cannot encode H.264 get a
   WebM (VP9) file instead.
 - **Export Project** — a ZIP with every processed frame (PNG cut-outs or the
-  original JPEGs), a `spin.json` manifest and a dependency-free `index.html`
-  viewer, so the folder can be hosted as-is.
+  original JPEGs), the background and text/logo as two layer images
+  (`scene/background.png`, `scene/overlay.png`), a `spin.json` manifest and a
+  dependency-free `index.html` viewer that stacks them, so the folder can be
+  hosted as-is and the raw frames stay reusable.
 - A **sample product** is generated procedurally on a canvas, for the hero demo
   and the "Try sample photos" button.
 
@@ -76,13 +84,15 @@ sees the images, and there is nothing to store or pay for.
 
 1. Frames are downscaled (Small 360 px · Balanced 540 px · Sharp 800 px on the
    long edge) and re-encoded as WebP (JPEG where the browser cannot encode WebP).
-2. Unless the backdrop is *Transparent*, the backdrop is painted into every
-   frame. An opaque WebP is roughly 4× smaller than one with an alpha channel
-   (measured on 35 cut-outs at 540 px: 137 KB vs 591 KB). The backdrops are
-   designed to fade to a solid edge colour, so the viewer can letterbox baked
-   frames seamlessly at any window size.
-3. The frames and viewer settings are packed into a small binary container and
-   encoded as base64url — the densest URL-safe text encoding.
+2. The background, text and logo are painted into every frame. Unless the
+   background is *Transparent* the frames are opaque, and an opaque WebP is
+   roughly 4× smaller than one with an alpha channel (measured on 35 cut-outs
+   at 540 px: 137 KB vs 591 KB). A busy background picture compresses less
+   well than a plain colour, so it makes the link longer.
+3. The frames, viewer settings and a "matte" colour (shown around frames when
+   the window has a different shape) are packed into a small binary container
+   and encoded as base64url — the densest URL-safe text encoding. Links made
+   by earlier versions still open.
 
 General-purpose compression such as `lz-string` is deliberately **not** used:
 WebP/JPEG data is already compressed, and on a real 35-frame payload lz-string
@@ -128,6 +138,7 @@ src/
     SpinViewer.tsx         React wrapper: stage, overlays and controls
     FrameGrid.tsx          sortable thumbnail grid (dnd-kit)
     ShareModal.tsx         link quality, preview, link + embed code
+    ScenePanel.tsx         background, text and logo controls
     VideoModal.tsx         video length/resolution, render progress, preview + download
     VideoImportModal.tsx   trim one turn of an uploaded video and capture its frames
     Studio.tsx, Dropzone.tsx, Modal.tsx, Toast.tsx, ui.tsx, landing/
@@ -139,7 +150,8 @@ src/
     spinMath.ts            frame/position maths (unit tested)
     sharePayload.ts        binary share-link format + base64url (unit tested)
     share.ts               frame re-encoding, link and embed generation
-    backdrops.ts           backdrop definitions shared by CSS, canvas and export
+    backdrops.ts           preset backdrop definitions (CSS swatches + canvas)
+    scene.ts               background / text / logo model and the painter every output uses
     exportZip.ts           ZIP export with a standalone viewer
     video.ts, videoPlan.ts MP4/WebM rendering (mediabunny + WebCodecs) and its timing maths
     videoFrames.ts         capturing frames from an uploaded video (unit tested)

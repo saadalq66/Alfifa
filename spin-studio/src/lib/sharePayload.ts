@@ -1,4 +1,5 @@
-import { BACKDROP_IDS, type BackdropId } from '../types';
+import { BACKDROP_IDS } from '../types';
+import { backdropOuterColor } from './backdrops';
 
 /**
  * Share links carry the whole project inside the URL fragment (`#spin=…`), so
@@ -11,18 +12,22 @@ import { BACKDROP_IDS, type BackdropId } from '../types';
  * the densest URL-safe text encoding. Size is controlled where it matters:
  * frame resolution, quality and count (see share.ts).
  *
- * Layout (version 1):
+ * Layout (version 2):
  *   u8      version
- *   u8      flags (bit 0: autoplay, bit 1: invert drag)
- *   u8      backdrop index into BACKDROP_IDS
+ *   u8      flags (bit 0: autoplay, bit 1: invert drag, bit 2: transparent frames)
  *   u8      auto-rotate fps
  *   u8      image format index into FORMATS
+ *   u8 × 3  matte colour (RGB) shown around letterboxed frames
  *   varint  frame count
  *   repeated: varint byte length, bytes
+ *
+ * The background, text and logo are baked into the frames, so the viewer
+ * only needs the matte colour. Version 1 links stored a backdrop index
+ * instead of the matte and are still decoded.
  */
 
 export const SHARE_HASH_PREFIX = '#spin=';
-const VERSION = 1;
+const VERSION = 2;
 const FORMATS = ['image/webp', 'image/jpeg', 'image/png'] as const;
 export type ShareImageFormat = (typeof FORMATS)[number];
 
@@ -32,7 +37,8 @@ const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export interface SharePayload {
   autoplay: boolean;
   invertDrag: boolean;
-  backdrop: BackdropId;
+  /** '#rrggbb', or 'transparent' when the frames keep their transparency. */
+  matte: string;
   fps: number;
   format: ShareImageFormat;
   frames: Uint8Array[];
@@ -44,7 +50,8 @@ export class ShareLinkError extends Error {
 
 export function encodeSharePayload(payload: SharePayload): string {
   const formatIndex = FORMATS.indexOf(payload.format);
-  const backdropIndex = BACKDROP_IDS.indexOf(payload.backdrop);
+  const transparent = payload.matte === 'transparent';
+  const matte = transparent ? [0, 0, 0] : hexToRgb(payload.matte);
   if (formatIndex < 0) throw new Error(`Unsupported format ${payload.format}`);
   if (payload.frames.length === 0 || payload.frames.length > MAX_SHARE_FRAMES) {
     throw new Error(`A share link needs 1–${MAX_SHARE_FRAMES} frames`);
@@ -52,10 +59,10 @@ export function encodeSharePayload(payload: SharePayload): string {
 
   const header = [
     VERSION,
-    (payload.autoplay ? 1 : 0) | (payload.invertDrag ? 2 : 0),
-    Math.max(0, backdropIndex),
+    (payload.autoplay ? 1 : 0) | (payload.invertDrag ? 2 : 0) | (transparent ? 4 : 0),
     Math.round(Math.min(60, Math.max(1, payload.fps))),
     formatIndex,
+    ...matte,
     ...varint(payload.frames.length),
   ];
   let size = header.length;
@@ -84,14 +91,21 @@ export function decodeSharePayload(encoded: string): SharePayload {
   const reader = new Reader(bytes);
 
   const version = reader.byte();
-  if (version !== VERSION) {
+  if (version !== 1 && version !== VERSION) {
     throw new ShareLinkError('This link was made with a newer version of the app.');
   }
   const flags = reader.byte();
-  const backdrop = BACKDROP_IDS[reader.byte()] ?? 'studio';
+  let matte: string;
+  if (version === 1) {
+    matte = backdropOuterColor(BACKDROP_IDS[reader.byte()] ?? 'studio');
+  }
   const fps = Math.min(60, Math.max(1, reader.byte()));
   const format = FORMATS[reader.byte()];
   if (!format) throw new ShareLinkError('Unknown image format.');
+  if (version === VERSION) {
+    const rgb = [reader.byte(), reader.byte(), reader.byte()];
+    matte = (flags & 4) !== 0 ? 'transparent' : rgbToHex(rgb);
+  }
 
   const count = reader.varint();
   if (count < 1 || count > MAX_SHARE_FRAMES) throw new ShareLinkError('Invalid frame count.');
@@ -106,7 +120,7 @@ export function decodeSharePayload(encoded: string): SharePayload {
   return {
     autoplay: (flags & 1) !== 0,
     invertDrag: (flags & 2) !== 0,
-    backdrop,
+    matte: matte!,
     fps,
     format,
     frames,
@@ -116,6 +130,17 @@ export function decodeSharePayload(encoded: string): SharePayload {
 /** Extracts the encoded payload from a location hash, or null if it is not a share link. */
 export function readShareHash(hash: string): string | null {
   return hash.startsWith(SHARE_HASH_PREFIX) ? hash.slice(SHARE_HASH_PREFIX.length) : null;
+}
+
+function hexToRgb(hex: string): number[] {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return [0, 0, 0];
+  const n = parseInt(match[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHex(rgb: number[]): string {
+  return `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
 class Reader {
