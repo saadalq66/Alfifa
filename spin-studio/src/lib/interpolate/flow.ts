@@ -1,22 +1,15 @@
 /*
- * Motion-compensated frame interpolation, in plain TypeScript so it can run in
- * a worker and be unit tested.
+ * Building blocks for in-between frames, in plain TypeScript so they run in a
+ * worker and can be unit tested: grey images, census matching costs and their
+ * semi-global aggregation (used by turntable.ts to find the motion), and
+ * rendering — both photos pushed forward to the in-between time and combined.
  *
- * 1. Optical flow. Semi-global matching (as in stereo vision) finds the large,
- *    mostly sideways motion of a turning object at 160 px, using census costs
- *    that ignore the lighting changes of a rotating surface. Coarse-to-fine
- *    Horn–Schunck refinement on high-passed images adds detail and small
- *    vertical motion; a weak pull towards zero keeps blank backgrounds still.
- *    Finally the field is smoothed, weighted by texture: a turning rigid
- *    object moves smoothly, and leftover noise would tear textures apart.
- * 2. Flow projection. Every pixel of each photo is pushed forward to where it
- *    sits at the in-between time. Where few pixels of a photo land, that part
- *    of the object is hidden in it, so the other photo is used there.
- * 3. Synthesis. Both photos are warped to the in-between time. Where they
- *    agree they are blended; where they disagree (imperfect motion on fine
- *    detail) the photo nearer in time wins, region by region, falling back to
- *    the other one only where the nearer photo can't see that part. Blending
- *    disagreeing pixels would show both versions at once — a double exposure.
+ * Rendering: every pixel of each photo is pushed to where it sits at the
+ * in-between time; where few pixels of a photo land, that part of the object
+ * is hidden in it, so the other photo is used there. Where the two warped
+ * photos agree they are blended; where they disagree the photo nearer in time
+ * wins, region by region — blending disagreeing pixels would show both
+ * versions at once, a double exposure.
  */
 
 export interface Gray {
@@ -65,7 +58,7 @@ export function toGray(image: RGBAImage, maxSize = FLOW_SIZE): Gray {
   return { width: w, height: h, data: sum };
 }
 
-function downsample(g: Gray): Gray {
+export function downsample(g: Gray): Gray {
   const w = Math.max(1, g.width >> 1);
   const h = Math.max(1, g.height >> 1);
   const data = new Float32Array(w * h);
@@ -84,7 +77,7 @@ function downsample(g: Gray): Gray {
 }
 
 /** 5×5 census transform: one bit per neighbour, set when it is darker than the centre. */
-function census(g: Gray): Uint32Array {
+export function census(g: Gray): Uint32Array {
   const { width: w, height: h, data } = g;
   const out = new Uint32Array(w * h);
   for (let y = 0; y < h; y++) {
@@ -106,7 +99,7 @@ function census(g: Gray): Uint32Array {
   return out;
 }
 
-function popcount(x: number): number {
+export function popcount(x: number): number {
   x -= (x >>> 1) & 0x55555555;
   x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
   return (Math.imul((x + (x >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24) & 0xff;
@@ -133,7 +126,7 @@ function boxSum(src: Float32Array, w: number, h: number, r: number, tmp: Float32
   }
 }
 
-function median3(src: Float32Array, w: number, h: number): Float32Array {
+export function median3(src: Float32Array, w: number, h: number): Float32Array {
   const out = new Float32Array(src.length);
   const win = new Float32Array(9);
   for (let y = 0; y < h; y++) {
@@ -166,45 +159,14 @@ function median9(p: Float32Array): number {
   return p[4];
 }
 
-function parabola(a: number | undefined, b: number, c: number | undefined): number {
+export function parabola(a: number | undefined, b: number, c: number | undefined): number {
   if (a === undefined || c === undefined) return 0;
   const denom = a - 2 * b + c;
   if (denom <= 1e-6) return 0;
   return Math.max(-0.5, Math.min(0.5, (a - c) / (2 * denom)));
 }
 
-function upsample(f: Flow, w: number, h: number): Flow {
-  const u = new Float32Array(w * h);
-  const v = new Float32Array(w * h);
-  const sx = f.width / w;
-  const sy = f.height / h;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const [fu, fv] = sampleFlow(f, (x + 0.5) * sx - 0.5, (y + 0.5) * sy - 0.5);
-      u[y * w + x] = fu / sx;
-      v[y * w + x] = fv / sy;
-    }
-  }
-  return { width: w, height: h, u, v };
-}
-
-function sampleFlow(f: Flow, x: number, y: number): [number, number] {
-  const x0 = Math.min(f.width - 1, Math.max(0, Math.floor(x)));
-  const y0 = Math.min(f.height - 1, Math.max(0, Math.floor(y)));
-  const x1 = Math.min(f.width - 1, x0 + 1);
-  const y1 = Math.min(f.height - 1, y0 + 1);
-  const ax = Math.min(1, Math.max(0, x - x0));
-  const ay = Math.min(1, Math.max(0, y - y0));
-  const i00 = y0 * f.width + x0;
-  const i10 = y0 * f.width + x1;
-  const i01 = y1 * f.width + x0;
-  const i11 = y1 * f.width + x1;
-  const lerp = (a: Float32Array) =>
-    (a[i00] * (1 - ax) + a[i10] * ax) * (1 - ay) + (a[i01] * (1 - ax) + a[i11] * ax) * ay;
-  return [lerp(f.u), lerp(f.v)];
-}
-
-function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Array {
+export function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Array {
   const tmp = new Float32Array(src.length);
   const out = new Float32Array(src.length);
   boxSum(src, w, h, r, tmp, out);
@@ -214,192 +176,23 @@ function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Arr
 }
 
 /** Removes slow brightness changes (shading as faces turn) and keeps structure. */
-function highPass(g: Gray): Float32Array {
+export function highPass(g: Gray): Float32Array {
   const blurred = boxBlur(boxBlur(g.data, g.width, g.height, 3), g.width, g.height, 3);
   const out = new Float32Array(g.data.length);
   for (let i = 0; i < out.length; i++) out[i] = g.data[i] - blurred[i];
   return out;
 }
 
-function sampleGray(data: Float32Array, w: number, h: number, x: number, y: number): number {
-  const cx = Math.min(w - 1, Math.max(0, x));
-  const cy = Math.min(h - 1, Math.max(0, y));
-  const x0 = Math.floor(cx);
-  const y0 = Math.floor(cy);
-  const x1 = Math.min(w - 1, x0 + 1);
-  const y1 = Math.min(h - 1, y0 + 1);
-  const ax = cx - x0;
-  const ay = cy - y0;
-  return (
-    (data[y0 * w + x0] * (1 - ax) + data[y0 * w + x1] * ax) * (1 - ay) +
-    (data[y1 * w + x0] * (1 - ax) + data[y1 * w + x1] * ax) * ay
-  );
-}
-
-const HS_ALPHA = 6;
-/** Pull towards no motion; negligible where there is texture, decisive in flat areas. */
-const HS_STILL = 0.4;
-const HS_WARPS = 3;
-const HS_ITERATIONS = 20;
-
-/** Horn–Schunck refinement with repeated warping, starting from `flow`. */
-function hornSchunck(a: Float32Array, b: Float32Array, w: number, h: number, flow: Flow): Flow {
-  const n = w * h;
-  const u = Float32Array.from(flow.u);
-  const v = Float32Array.from(flow.v);
-  const ix = new Float32Array(n);
-  const iy = new Float32Array(n);
-  const it = new Float32Array(n);
-  const du = new Float32Array(n);
-  const dv = new Float32Array(n);
-  const alpha2 = HS_ALPHA * HS_ALPHA;
-  const still2 = HS_STILL * HS_STILL;
-  const shrink = alpha2 / (alpha2 + still2);
-
-  for (let warp = 0; warp < HS_WARPS; warp++) {
-    // Linearise around the current flow: compare a with b warped back onto a.
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        const bx = x + u[i];
-        const by = y + v[i];
-        const bw = sampleGray(b, w, h, bx, by);
-        const gx =
-          (sampleGray(b, w, h, bx + 1, by) - sampleGray(b, w, h, bx - 1, by) +
-            a[y * w + Math.min(w - 1, x + 1)] - a[y * w + Math.max(0, x - 1)]) / 4;
-        const gy =
-          (sampleGray(b, w, h, bx, by + 1) - sampleGray(b, w, h, bx, by - 1) +
-            a[Math.min(h - 1, y + 1) * w + x] - a[Math.max(0, y - 1) * w + x]) / 4;
-        ix[i] = gx;
-        iy[i] = gy;
-        // Clamp the residual so badly matched pixels can't fling the field around.
-        it[i] = Math.max(-40, Math.min(40, bw - a[i]));
-        du[i] = 0;
-        dv[i] = 0;
-      }
-    }
-    for (let iter = 0; iter < HS_ITERATIONS; iter++) {
-      for (let y = 0; y < h; y++) {
-        const up = Math.max(0, y - 1) * w;
-        const down = Math.min(h - 1, y + 1) * w;
-        const row = y * w;
-        for (let x = 0; x < w; x++) {
-          const i = row + x;
-          const l = row + Math.max(0, x - 1);
-          const r = row + Math.min(w - 1, x + 1);
-          // Smoothness acts on the total flow (u + du), not just the increment.
-          // Neighbour average of the total flow, shrunk towards zero by the stillness prior.
-          const totalU = ((u[l] + du[l] + u[r] + du[r] + u[up + x] + du[up + x] + u[down + x] + du[down + x]) / 4) * shrink;
-          const totalV = ((v[l] + dv[l] + v[r] + dv[r] + v[up + x] + dv[up + x] + v[down + x] + dv[down + x]) / 4) * shrink;
-          const avgU = totalU - u[i];
-          const avgV = totalV - v[i];
-          const t = (ix[i] * avgU + iy[i] * avgV + it[i]) / (alpha2 + still2 + ix[i] * ix[i] + iy[i] * iy[i]);
-          du[i] = avgU - ix[i] * t;
-          dv[i] = avgV - iy[i] * t;
-        }
-      }
-    }
-    for (let i = 0; i < n; i++) {
-      u[i] += du[i];
-      v[i] += dv[i];
-    }
-    const smoothedU = median3(u, w, h);
-    const smoothedV = median3(v, w, h);
-    u.set(smoothedU);
-    v.set(smoothedV);
-  }
-  return { width: w, height: h, u, v };
-}
-
-/** Dense optical flow from `a` to `b`: a(x) ≈ b(x + flow(x)). */
-export function estimateFlow(a: Gray, b: Gray): Flow {
-  const pyramidA = [a];
-  const pyramidB = [b];
-  while (pyramidA.length < 3 && Math.min(pyramidA[0].width, pyramidA[0].height) >= 192) {
-    pyramidA.unshift(downsample(pyramidA[0]));
-    pyramidB.unshift(downsample(pyramidB[0]));
-  }
-  let flow = sgmFlow(pyramidA[0], pyramidB[0]);
-  pyramidA.forEach((levelA, level) => {
-    const { width: w, height: h } = levelA;
-    if (level > 0) flow = upsample(flow, w, h);
-    flow = hornSchunck(highPass(levelA), highPass(pyramidB[level]), w, h, flow);
-  });
-  return smoothFlow(flow, highPass(a));
-}
-
 /**
- * A turning rigid object moves smoothly across its surface; residual noise in
- * the estimate would tear textures apart when warping, so the field is
- * smoothed heavily (three box passes ≈ a Gaussian). It is a normalised
- * convolution weighted by local texture: motion measured on detail (including
- * the object's outline) outweighs guesses in blank areas, so the outline isn't
- * dragged back by the still background around it.
+ * Semi-global aggregation of a cost volume (D candidates per pixel) along four
+ * directions: a small penalty for changing by one candidate between
+ * neighbours, a larger one for jumps — smaller across edges of `guide`, where
+ * object outlines are likely.
  */
-function smoothFlow(f: Flow, detail: Float32Array): Flow {
-  const { width: w, height: h } = f;
-  const r = Math.max(2, Math.round(Math.max(w, h) / 64));
-  const weight = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      const gx = detail[y * w + Math.min(w - 1, x + 1)] - detail[y * w + Math.max(0, x - 1)];
-      const gy = detail[Math.min(h - 1, y + 1) * w + x] - detail[Math.max(0, y - 1) * w + x];
-      weight[i] = 0.05 + Math.min(1, Math.hypot(gx, gy) / 24);
-    }
-  }
-  let wu: Float32Array = new Float32Array(w * h);
-  let wv: Float32Array = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    wu[i] = f.u[i] * weight[i];
-    wv[i] = f.v[i] * weight[i];
-  }
-  let ws: Float32Array = weight;
-  for (let pass = 0; pass < 3; pass++) {
-    wu = boxBlur(wu, w, h, r);
-    wv = boxBlur(wv, w, h, r);
-    ws = boxBlur(ws, w, h, r);
-  }
-  const u = new Float32Array(w * h);
-  const v = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    u[i] = wu[i] / ws[i];
-    v[i] = wv[i] / ws[i];
-  }
-  return { width: w, height: h, u, v };
-}
-
-/**
- * Semi-global matching (as in stereo vision) of sideways motion: a turntable
- * moves surfaces mostly horizontally. Matching costs (census Hamming distance)
- * are aggregated along four directions with a small penalty for 1-pixel
- * changes and a larger one for jumps — smaller across image edges, so motion
- * can change abruptly at the object's outline. A slight preference for no
- * motion keeps blank backgrounds still.
- */
-function sgmFlow(a: Gray, b: Gray): Flow {
-  const { width: w, height: h } = a;
-  const n = w * h;
-  const range = Math.max(3, Math.ceil(w * 0.3));
-  const D = 2 * range + 1;
-  const cA = census(a);
-  const cB = census(b);
-  const cost = new Uint8Array(n * D);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      for (let k = 0; k < D; k++) {
-        const bx = x + k - range;
-        const c = bx < 0 || bx >= w ? 24 : popcount(cA[i] ^ cB[y * w + bx]);
-        // Slight preference for standing still, so textureless areas don't drift.
-        cost[i * D + k] = Math.min(255, c * 4 + Math.round(Math.abs(k - range) * 0.25));
-      }
-    }
-  }
-
+export function aggregate(cost: Uint8Array, w: number, h: number, D: number, guide: Float32Array): Uint16Array {
   const P1 = 8;
   const P2 = 64;
-  const total = new Uint16Array(n * D);
+  const total = new Uint16Array(w * h * D);
   const prev = new Float32Array(D);
   const curr = new Float32Array(D);
   const paths: [number, number][] = [
@@ -415,7 +208,7 @@ function sgmFlow(a: Gray, b: Gray): Flow {
       let prevMin = 0;
       let prevIndex = -1;
       for (let step = 0; step < length; step++) {
-        const pos = (dx > 0 || dy > 0) ? step : length - 1 - step;
+        const pos = dx > 0 || dy > 0 ? step : length - 1 - step;
         const x = dx !== 0 ? pos : line;
         const y = dx !== 0 ? line : pos;
         const i = y * w + x;
@@ -423,8 +216,7 @@ function sgmFlow(a: Gray, b: Gray): Flow {
         if (prevIndex < 0) {
           for (let k = 0; k < D; k++) curr[k] = cost[i * D + k];
         } else {
-          // Jumps are cheaper across intensity edges (likely object outlines).
-          const edge = Math.abs(a.data[i] - a.data[prevIndex]);
+          const edge = Math.abs(guide[i] - guide[prevIndex]);
           const p2 = Math.max(P1 + 1, P2 / (1 + edge / 8));
           for (let k = 0; k < D; k++) {
             let best = prev[k];
@@ -444,8 +236,12 @@ function sgmFlow(a: Gray, b: Gray): Flow {
       }
     }
   }
+  return total;
+}
 
-  const u = new Float32Array(n);
+/** The cheapest candidate per pixel, with sub-candidate precision. */
+export function winners(total: Uint16Array, n: number, D: number): Float32Array {
+  const out = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     let bestK = 0;
     let best = Infinity;
@@ -456,70 +252,131 @@ function sgmFlow(a: Gray, b: Gray): Flow {
       }
     }
     const sub =
-      bestK > 0 && bestK < D - 1
-        ? parabola(total[i * D + bestK - 1], best, total[i * D + bestK + 1])
-        : 0;
-    u[i] = bestK - range + sub;
+      bestK > 0 && bestK < D - 1 ? parabola(total[i * D + bestK - 1], best, total[i * D + bestK + 1]) : 0;
+    out[i] = bestK + sub;
   }
-  return { width: w, height: h, u: median3(u, w, h), v: new Float32Array(n) };
+  return out;
 }
 
 export interface ProjectedFlow extends Flow {
   /** How many source pixels landed here; near 0 means hidden in the source photo. */
   weight: Float32Array;
+  /** Nearness of what landed here, when the sources' nearness was given. */
+  near?: Float32Array;
 }
 
 /**
- * Pushes every source pixel forward by `t` of its motion and records, at its
- * new position, the vector pointing back to where it came from.
+ * Pushes every grid point forward by its displacement (du, dv) and records, at
+ * its new position, the vector pointing back to where it came from.
  */
-export function projectFlow(f: Flow, t: number): ProjectedFlow {
-  const { width: w, height: h } = f;
+export function project(
+  du: Float32Array,
+  dv: Float32Array,
+  w: number,
+  h: number,
+  near?: Float32Array,
+): ProjectedFlow {
   const n = w * h;
   const u = new Float32Array(n);
   const v = new Float32Array(n);
   const weight = new Float32Array(n);
-  const splat = (xx: number, yy: number, wt: number, du: number, dv: number) => {
-    if (xx < 0 || yy < 0 || xx >= w || yy >= h || wt <= 0) return;
-    const j = yy * w + xx;
-    u[j] -= wt * du;
-    v[j] -= wt * dv;
-    weight[j] += wt;
-  };
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      const du = t * f.u[i];
-      const dv = t * f.v[i];
-      const tx = x + du;
-      const ty = y + dv;
-      const x0 = Math.floor(tx);
-      const y0 = Math.floor(ty);
-      const ax = tx - x0;
-      const ay = ty - y0;
-      splat(x0, y0, (1 - ax) * (1 - ay), du, dv);
-      splat(x0 + 1, y0, ax * (1 - ay), du, dv);
-      splat(x0, y0 + 1, (1 - ax) * ay, du, dv);
-      splat(x0 + 1, y0 + 1, ax * ay, du, dv);
+  const landedNear = near ? new Float32Array(n) : undefined;
+  // Visits the four grid points each source point lands between, with weights.
+  const each = (visit: (i: number, j: number, wt: number) => void) => {
+    const tap = (i: number, xx: number, yy: number, wt: number) => {
+      if (xx >= 0 && yy >= 0 && xx < w && yy < h && wt > 0) visit(i, yy * w + xx, wt);
+    };
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const tx = x + du[i];
+        const ty = y + dv[i];
+        const x0 = Math.floor(tx);
+        const y0 = Math.floor(ty);
+        const ax = tx - x0;
+        const ay = ty - y0;
+        tap(i, x0, y0, (1 - ax) * (1 - ay));
+        tap(i, x0 + 1, y0, ax * (1 - ay));
+        tap(i, x0, y0 + 1, (1 - ax) * ay);
+        tap(i, x0 + 1, y0 + 1, ax * ay);
+      }
     }
-  }
+  };
+  each((i, j, wt) => {
+    u[j] -= wt * du[i];
+    v[j] -= wt * dv[i];
+    weight[j] += wt;
+    if (near && landedNear) landedNear[j] += wt * near[i];
+  });
   // Where a surface stretches, pushed pixels land unevenly (alternate columns
   // get more or fewer); smoothing the sums before normalising removes that
   // aliasing, which would otherwise show up as stripes.
   const su = boxBlur(boxBlur(u, w, h, 1), w, h, 1);
   const sv = boxBlur(boxBlur(v, w, h, 1), w, h, 1);
   const sw = boxBlur(boxBlur(weight, w, h, 1), w, h, 1);
+  const sn = landedNear ? boxBlur(boxBlur(landedNear, w, h, 1), w, h, 1) : undefined;
   for (let j = 0; j < n; j++) {
     if (sw[j] > 1e-3) {
       su[j] /= sw[j];
       sv[j] /= sw[j];
+      if (sn) sn[j] /= sw[j];
     } else {
-      // Nothing landed here: fall back to the plain linear estimate.
-      su[j] = -t * f.u[j];
-      sv[j] = -t * f.v[j];
+      // Nothing landed here: fall back to the displacement of this grid point.
+      su[j] = -du[j];
+      sv[j] = -dv[j];
+      if (sn && near) sn[j] = near[j];
     }
   }
-  return { width: w, height: h, u: su, v: sv, weight: sw };
+  return { width: w, height: h, u: su, v: sv, weight: sw, near: sn };
+}
+
+/**
+ * 1 where the object is (anything that differs between the photos, filled in
+ * across each row so plain areas of the object count too), 0 on a background
+ * that stays put, softened so the two blend without a seam.
+ */
+export function movingMask(ga: Gray, gb: Gray): Float32Array {
+  const { width: w, height: h } = ga;
+  const diff = new Float32Array(w * h);
+  for (let i = 0; i < diff.length; i++) diff[i] = Math.abs(ga.data[i] - gb.data[i]);
+  const blurred = boxBlur(diff, w, h, 1);
+  const mask = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    let first = -1;
+    let last = -1;
+    for (let x = 0; x < w; x++) {
+      if (blurred[y * w + x] > 4) {
+        if (first < 0) first = x;
+        last = x;
+      }
+    }
+    for (let x = Math.max(0, first); x <= last; x++) mask[y * w + x] = 1;
+  }
+  const r = Math.max(1, Math.round(Math.max(w, h) / 80));
+  return boxBlur(boxBlur(mask, w, h, r), w, h, r);
+}
+
+/** The turning axis: the middle of the moving region's horizontal extent. */
+export function estimateAxis(mask: Float32Array, w: number, h: number): number {
+  const columns = new Float32Array(w);
+  let total = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      columns[x] += mask[y * w + x];
+      total += mask[y * w + x];
+    }
+  }
+  if (total < 1) return (w - 1) / 2;
+  let sum = 0;
+  let left = 0;
+  let right = w - 1;
+  for (let x = 0; x < w; x++) {
+    const before = sum;
+    sum += columns[x];
+    if (before < total * 0.02 && sum >= total * 0.02) left = x;
+    if (before < total * 0.98 && sum >= total * 0.98) right = x;
+  }
+  return (left + right) / 2;
 }
 
 /** An image whose colour channels are already multiplied by alpha. */
@@ -548,24 +405,46 @@ function premultiplied(image: RGBAImage | PremultipliedImage): Uint8ClampedArray
   return 'premultiplied' in image ? image.data : premultiplyImage(image).data;
 }
 
-/** Renders the in-between image at time `t` (0 = a, 1 = b), as straight RGBA. */
-export function synthesize(
+/** Where each grid point of the two photos moves by the in-between time. */
+export interface Displacement {
+  width: number;
+  height: number;
+  duA: Float32Array;
+  dvA: Float32Array;
+  duB: Float32Array;
+  dvB: Float32Array;
+  /**
+   * How near each grid point is to the camera at the in-between time (larger
+   * is nearer, in grid pixels), when known: hidden surfaces are then dropped
+   * where several land on the same spot, and where the two photos disagree the
+   * nearer surface wins — as in reality.
+   */
+  nearA?: Float32Array;
+  nearB?: Float32Array;
+}
+
+/**
+ * Warps both photos to the in-between time `t` and combines them: blended
+ * where they agree; where they disagree, the photo nearer in time wins.
+ */
+export function render(
   a: RGBAImage | PremultipliedImage,
   b: RGBAImage | PremultipliedImage,
-  flowAB: Flow,
-  flowBA: Flow,
+  motion: Displacement,
   t: number,
 ): Uint8ClampedArray {
   const { width, height } = a;
-  const toA = projectFlow(flowAB, t);
-  const toB = projectFlow(flowBA, 1 - t);
+  const { width: fw, height: fh } = motion;
+  const sx = fw / width;
+  const sy = fh / height;
+  const toA = project(motion.duA, motion.dvA, fw, fh, motion.nearA);
+  const toB = project(motion.duB, motion.dvB, fw, fh, motion.nearB);
+  const nearA = toA.near;
+  const nearB = toB.near;
+  const nearMargin = Math.max(2, fw * 0.03);
   const pa = premultiplied(a);
   const pb = premultiplied(b);
   const out = new Uint8ClampedArray(width * height * 4);
-  const fw = toA.width;
-  const fh = toA.height;
-  const sx = fw / width;
-  const sy = fh / height;
   const sampleA = new Float32Array(4);
   const sampleB = new Float32Array(4);
 
@@ -589,6 +468,25 @@ export function synthesize(
     }
   }
   disagree = boxBlur(boxBlur(disagree, fw, fh, 2), fw, fh, 2);
+
+  // Which photo to trust where they disagree, decided per region too: the
+  // surface nearer the camera when both photos see something there and their
+  // depths clearly differ, otherwise the photo nearer in time (1 = a, 0 = b).
+  let preferA: Float32Array = new Float32Array(fw * fh);
+  for (let i = 0; i < preferA.length; i++) {
+    const visA = Math.min(1, toA.weight[i]);
+    const visB = Math.min(1, toB.weight[i]);
+    const gap = nearA && nearB ? nearA[i] - nearB[i] : 0;
+    preferA[i] =
+      visA > 0.3 && visB > 0.3 && Math.abs(gap) > nearMargin
+        ? gap > 0
+          ? 1
+          : 0
+        : (1 - t) * (visA > 0.3 ? 1 : visA) >= t * (visB > 0.3 ? 1 : visB)
+          ? 1
+          : 0;
+  }
+  preferA = boxBlur(boxBlur(preferA, fw, fh, 2), fw, fh, 2);
 
   // Every output pixel samples the coarse grids at the same column positions,
   // so the bilinear taps are computed once per column and once per row.
@@ -625,6 +523,7 @@ export function synthesize(
       const vb = toB.v[i00] * w00 + toB.v[i10] * w10 + toB.v[i01] * w01 + toB.v[i11] * w11;
       const wb = toB.weight[i00] * w00 + toB.weight[i10] * w10 + toB.weight[i01] * w01 + toB.weight[i11] * w11;
       const dis = disagree[i00] * w00 + disagree[i10] * w10 + disagree[i01] * w01 + disagree[i11] * w11;
+      const pickA = preferA[i00] * w00 + preferA[i10] * w10 + preferA[i01] * w01 + preferA[i11] * w11;
       bilinear(pa, width, height, x + ua / sx, y + va / sy, sampleA);
       bilinear(pb, width, height, x + ub / sx, y + vb / sy, sampleB);
       // Each photo counts more the closer we are to it in time, and only where
@@ -640,10 +539,9 @@ export function synthesize(
       // Where the two warped photos disagree, hand the region to one of them.
       const select = smoothstep(8, 24, dis);
       if (select > 0) {
-        const nearA = (1 - t) * (visA > 0.3 ? 1 : visA) >= t * (visB > 0.3 ? 1 : visB);
         const sum = w0 + w1;
-        w0 = w0 * (1 - select) + (nearA ? sum : 0) * select;
-        w1 = w1 * (1 - select) + (nearA ? 0 : sum) * select;
+        w0 = w0 * (1 - select) + sum * pickA * select;
+        w1 = w1 * (1 - select) + sum * (1 - pickA) * select;
       }
       const norm = 1 / (w0 + w1);
       const o = (y * width + x) * 4;

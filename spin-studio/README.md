@@ -118,24 +118,38 @@ friendly "this link is incomplete" page rather than a broken viewer.
 
 ## How in-between frames are made
 
-No AI model or download is involved; it runs as plain TypeScript in a worker
-(`src/lib/interpolate/flow.ts`):
+No AI model or download is involved; it runs as plain TypeScript in Web Workers
+(`src/lib/interpolate/turntable.ts` and `flow.ts`). It assumes what a 360° set
+is — photos of one full turn about a vertical axis, evenly spaced — so the
+angle between neighbouring photos is known (360° ÷ number of photos).
 
-1. **Motion estimate.** Semi-global matching (a stereo-vision technique) finds
-   the large, mostly sideways motion of a turning object; coarse-to-fine
-   Horn–Schunck refinement adds detail; the field is then smoothed, weighted
-   by texture, because noise would tear textures when warping.
-2. **Projection.** Each photo's pixels are pushed to where they sit at the
-   in-between time; areas no pixel reaches are hidden in that photo.
-3. **Synthesis.** Both photos are warped to that time. Where they agree they
-   are blended; where they disagree, the photo nearer in time wins (region by
-   region), which avoids the ghostly double exposure of a cross-fade.
+1. **Geometry.** For every pair, the turning axis and the camera's tilt are
+   found by matching the object's columns by their top-to-bottom pattern of
+   edges (which, unlike small patches, looks the same when a surface turns
+   away). All pairs are then judged together and share one axis and tilt — the
+   camera doesn't move between photos, and single pairs of a symmetric object
+   can be fooled.
+2. **Depth.** With the angle, axis and tilt known, each pixel's motion depends
+   on one unknown: how far in front of or behind the axis it is. That is found
+   coarse to fine, searching only along each pixel's possible path; each finer
+   level first undoes most of the sideways squeeze of turning surfaces.
+3. **Rigidity.** Every column of the object moves as one (lids and tops can
+   follow as level surfaces), so matching noise can't bend edges and outlines
+   — the "jelly" wobble of plain optical flow.
+4. **Rendering.** Both photos are turned to the in-between angle — points
+   travel along their arcs; straight lines would make the object shrink
+   between photos and spring back at each one. Where the two disagree, the
+   surface nearer the camera wins (so a face turning into view appears),
+   otherwise the photo nearer in time; elsewhere they are blended.
 
-Quality depends on how far apart the photos are. On a test object with known
-in-between views, frames between photos 30° apart look close to the real
-thing (crisp text, slightly bent outlines); at 45° they are clearly better
-than a cross-fade but can look a little rubbery. Shooting more photos always
-gives the most realistic spin.
+Measured on a test box with known in-between views (`turntable.test.ts` has a
+small version), the frames keep the box's shape and are placed about 30–40%
+more accurately than with general-purpose optical flow. Remaining
+limitations: faces that are visible in neither neighbouring photo can't be
+invented, lids and other tops can smear a little, and 60°+ between photos
+(6 photos or fewer) is a big gap. Shooting more photos (12 or more) always
+gives the most realistic spin. Photos taken walking around an object work best
+with **Remove Backgrounds** on, since the scenery behind it moves too.
 
 ## Background removal
 
@@ -186,7 +200,7 @@ src/
     exportZip.ts           ZIP export with a standalone viewer
     video.ts, videoPlan.ts MP4/WebM rendering (mediabunny + WebCodecs) and its timing maths
     videoFrames.ts         capturing frames from an uploaded video (unit tested)
-    interpolate/           in-between frame generation: flow + synthesis, worker, client (unit tested)
+    interpolate/           in-between frames: turntable motion, rendering, worker, client (unit tested)
     bgRemoval/             Web Worker + client for @imgly/background-removal
     sample.ts              procedural sample product
 ```
