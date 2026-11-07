@@ -28,6 +28,13 @@ const FRICTION_PER_FRAME = 0.94;
 const MIN_FLING = 0.004; // frames per ms
 const MAX_FLING = 0.12;
 
+/** Painters for what is drawn under and over every frame, in the frame's own box. */
+export interface SpinLayers {
+  /** Returns false when it painted nothing. */
+  under?: (ctx: CanvasRenderingContext2D, width: number, height: number) => boolean;
+  over?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
+}
+
 interface Tween {
   from: number;
   to: number;
@@ -51,6 +58,10 @@ export class SpinEngine {
   private drawnIndex = -1;
   private drawnImage: HTMLImageElement | null = null;
   private needsDraw = true;
+  private layers: SpinLayers | null = null;
+  /** Layers pre-rendered at the current frame size, so scrubbing just blits them. */
+  private layerCache: { key: string; under: HTMLCanvasElement | null; over: HTMLCanvasElement | null } | null =
+    null;
 
   private playing = false;
   private velocity = 0;
@@ -110,6 +121,13 @@ export class SpinEngine {
     s.removeEventListener('keydown', this.onKeyDown);
     this.cache.clear();
     this.images = [];
+  }
+
+  setLayers(layers: SpinLayers | null) {
+    this.layers = layers;
+    this.layerCache = null;
+    this.needsDraw = true;
+    this.schedule();
   }
 
   setOptions(options: Partial<SpinOptions>) {
@@ -379,9 +397,34 @@ export class SpinEngine {
     const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
     const w = image.naturalWidth * scale;
     const h = image.naturalHeight * scale;
+    const x = (canvas.width - w) / 2;
+    const y = (canvas.height - h) / 2;
+    const layers = this.renderLayers(Math.round(w), Math.round(h));
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(image, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+    if (layers?.under) ctx.drawImage(layers.under, x, y, w, h);
+    ctx.drawImage(image, x, y, w, h);
+    if (layers?.over) ctx.drawImage(layers.over, x, y, w, h);
+  }
+
+  private renderLayers(width: number, height: number) {
+    if (!this.layers || width < 1 || height < 1) return null;
+    const key = `${width}x${height}`;
+    if (this.layerCache?.key === key) return this.layerCache;
+    const paint = (painter: ((ctx: CanvasRenderingContext2D) => boolean | void) | undefined) => {
+      if (!painter) return null;
+      const layer = document.createElement('canvas');
+      layer.width = width;
+      layer.height = height;
+      return painter(layer.getContext('2d')!) === false ? null : layer;
+    };
+    const { under, over } = this.layers;
+    this.layerCache = {
+      key,
+      under: paint(under && ((ctx) => under(ctx, width, height))),
+      over: paint(over && ((ctx) => over(ctx, width, height))),
+    };
+    return this.layerCache;
   }
 
   /** While frames stream in, show the closest one that has loaded instead of a blank. */

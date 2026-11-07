@@ -1,8 +1,8 @@
 import { zipSync, strToU8, type Zippable } from 'fflate';
 import { APP_NAME } from '../config';
 import type { Frame, ViewerSettings } from '../types';
-import { backdropCss, backdropOuterColor } from './backdrops';
 import { displayBlob } from './frames';
+import { renderLayer, type LoadedScene } from './scene';
 
 const EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
@@ -11,13 +11,16 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 /**
- * Bundles the frames (cutouts when background removal is on), a manifest and a
- * dependency-free index.html viewer, so the ZIP can be hosted as-is.
+ * Bundles the frames (cutouts when background removal is on), the scene as two
+ * layer images (background under the frames, text/logo over them), a manifest
+ * and a dependency-free index.html viewer that stacks them, so the ZIP can be
+ * hosted as-is and the raw frames stay reusable.
  */
 export async function exportProjectZip(
   frames: Frame[],
   settings: ViewerSettings,
   removeBackgrounds: boolean,
+  scene: LoadedScene,
 ): Promise<Blob> {
   const files: Zippable = {};
   const entries: { file: string; source: string; width: number; height: number }[] = [];
@@ -32,16 +35,36 @@ export async function exportProjectZip(
     entries.push({ file, source: frame.name, width: frame.width, height: frame.height });
   }
 
+  const layers: { background: string | null; overlay: string | null } = { background: null, overlay: null };
+  const { width, height } = frames[0];
+  for (const [key, layer, file] of [
+    ['background', 'under', 'scene/background.png'],
+    ['overlay', 'over', 'scene/overlay.png'],
+  ] as const) {
+    const blob = await renderLayer(scene, layer, width, height);
+    if (!blob) continue;
+    files[file] = [new Uint8Array(await blob.arrayBuffer()), { level: 0 }];
+    layers[key] = file;
+  }
+
   const manifest = {
     generator: APP_NAME,
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
     backgroundRemoved: removeBackgrounds && frames.every((f) => f.cutout),
-    viewer: { fps: settings.fps, invertDrag: settings.invertDrag, backdrop: settings.backdrop },
+    viewer: { fps: settings.fps, invertDrag: settings.invertDrag },
+    scene: { ...layers, matte: scene.matte },
     frames: entries,
   };
   files['spin.json'] = strToU8(JSON.stringify(manifest, null, 2));
-  files['index.html'] = strToU8(standaloneViewer(entries.map((e) => e.file), settings));
+  files['index.html'] = strToU8(
+    standaloneViewer(
+      entries.map((e) => e.file),
+      settings,
+      layers,
+      scene.matte,
+    ),
+  );
 
   const zipped = zipSync(files, { level: 6 });
   return new Blob([zipped as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
@@ -63,8 +86,19 @@ export function exportFilename(extension = 'zip', date = new Date()): string {
   return `360-spin-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.${extension}`;
 }
 
-function standaloneViewer(files: string[], settings: ViewerSettings): string {
-  const config = JSON.stringify({ frames: files, fps: settings.fps, invert: settings.invertDrag });
+function standaloneViewer(
+  files: string[],
+  settings: ViewerSettings,
+  layers: { background: string | null; overlay: string | null },
+  matte: string,
+): string {
+  const config = JSON.stringify({
+    frames: files,
+    fps: settings.fps,
+    invert: settings.invertDrag,
+    background: layers.background,
+    overlay: layers.overlay,
+  });
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -72,8 +106,7 @@ function standaloneViewer(files: string[], settings: ViewerSettings): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>360° view</title>
 <style>
-  html, body { margin: 0; height: 100%; background: ${backdropOuterColor(settings.backdrop)}; font-family: system-ui, sans-serif; }
-  body { background: ${backdropCss(settings.backdrop)}; }
+  html, body { margin: 0; height: 100%; background: ${matte}; font-family: system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
   #stage.dragging { cursor: grabbing; }
   canvas { display: block; width: 100%; height: 100%; }
@@ -93,12 +126,16 @@ function standaloneViewer(files: string[], settings: ViewerSettings): string {
   var ctx = canvas.getContext('2d');
   var toggle = document.getElementById('toggle');
   var n = cfg.frames.length, pos = 0, playing = n > 1, drag = null, last = 0;
-  var images = cfg.frames.map(function (src) {
+  function load(src) {
+    if (!src) return null;
     var img = new Image();
     img.onload = draw;
     img.src = src;
     return img;
-  });
+  }
+  var images = cfg.frames.map(load);
+  // The background goes under every frame and the text/logo layer over it.
+  var under = load(cfg.background), over = load(cfg.overlay);
   function index() { return ((Math.round(pos) % n) + n) % n; }
   function draw() {
     var img = images[index()];
@@ -106,7 +143,10 @@ function standaloneViewer(files: string[], settings: ViewerSettings): string {
     if (!img.complete || !img.naturalWidth) return;
     var s = Math.min(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight);
     var w = img.naturalWidth * s, h = img.naturalHeight * s;
-    ctx.drawImage(img, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+    var x = (canvas.width - w) / 2, y = (canvas.height - h) / 2;
+    if (under && under.naturalWidth) ctx.drawImage(under, x, y, w, h);
+    ctx.drawImage(img, x, y, w, h);
+    if (over && over.naturalWidth) ctx.drawImage(over, x, y, w, h);
   }
   function resize() {
     var dpr = Math.min(window.devicePixelRatio || 1, 2);

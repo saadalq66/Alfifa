@@ -1,6 +1,5 @@
-import type { BackdropId } from '../types';
-import { paintBackdrop } from './backdrops';
 import { canvasToBlob, fitWithin, loadBlobImage, supportsWebpEncoding } from './image';
+import { hasOverlay, paintOver, paintUnder, type LoadedScene } from './scene';
 import {
   encodeSharePayload,
   SHARE_HASH_PREFIX,
@@ -35,15 +34,15 @@ export interface ShareFrames {
 }
 
 /**
- * Re-encodes frames small enough to travel inside a URL. Unless the backdrop is
- * transparent it is painted into every frame: an opaque WebP is about a quarter
- * the size of one with an alpha channel, and the viewer lines the baked
- * backdrop up with its own (see SpinViewer).
+ * Re-encodes frames small enough to travel inside a URL, with the scene
+ * (background, text, logo) baked in. Unless the background is transparent the
+ * frames are opaque, and an opaque WebP is about a quarter the size of one with
+ * an alpha channel.
  */
 export async function encodeShareFrames(
   sources: Blob[],
   presetId: SharePresetId,
-  backdrop: BackdropId,
+  scene: LoadedScene,
 ): Promise<ShareFrames> {
   const preset = SHARE_PRESETS.find((p) => p.id === presetId) ?? SHARE_PRESETS[1];
   // WebP keeps transparency and is far smaller than JPEG at the same quality.
@@ -59,7 +58,7 @@ export async function encodeShareFrames(
     if (!width) ({ width, height } = size);
     canvas.width = size.width;
     canvas.height = size.height;
-    if (!paintBackdrop(ctx, backdrop, size.width, size.height) && format === 'image/jpeg') {
+    if (!paintUnder(ctx, scene, size.width, size.height) && format === 'image/jpeg') {
       // JPEG has no transparency; fall back to white.
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, size.width, size.height);
@@ -68,6 +67,7 @@ export async function encodeShareFrames(
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(image.source, 0, 0, size.width, size.height);
     image.close();
+    if (hasOverlay(scene)) paintOver(ctx, scene, size.width, size.height);
     const blob = await canvasToBlob(canvas, format, preset.quality);
     frames.push(new Uint8Array(await blob.arrayBuffer()));
   }

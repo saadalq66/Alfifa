@@ -89,7 +89,7 @@ export default function ViewerApp({ encoded }: { encoded: string }) {
         fps={payload.fps}
         invertDrag={payload.invertDrag}
         autoplay={payload.autoplay && !reducedMotion}
-        backdrop={payload.backdrop}
+        matte={payload.matte}
         aspect={aspect}
       />
     </main>

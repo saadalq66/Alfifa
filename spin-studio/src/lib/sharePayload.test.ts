@@ -22,7 +22,7 @@ function randomBytes(length: number, seed: number) {
 const payload: SharePayload = {
   autoplay: true,
   invertDrag: false,
-  backdrop: 'dark',
+  matte: '#0a0f1b',
   fps: 12,
   format: 'image/webp',
   frames: [randomBytes(10, 1), randomBytes(300, 2), randomBytes(70_000, 3)],
@@ -60,13 +60,29 @@ describe('share payload', () => {
     const decoded = decodeSharePayload(encodeSharePayload(payload));
     expect(decoded.autoplay).toBe(true);
     expect(decoded.invertDrag).toBe(false);
-    expect(decoded.backdrop).toBe('dark');
+    expect(decoded.matte).toBe('#0a0f1b');
     expect(decoded.fps).toBe(12);
     expect(decoded.format).toBe('image/webp');
     expect(decoded.frames.map((f) => f.length)).toEqual([10, 300, 70_000]);
     expect(Array.from(decoded.frames[2].subarray(0, 50))).toEqual(
       Array.from(payload.frames[2].subarray(0, 50)),
     );
+  });
+
+  it('keeps transparency', () => {
+    const decoded = decodeSharePayload(encodeSharePayload({ ...payload, matte: 'transparent' }));
+    expect(decoded.matte).toBe('transparent');
+  });
+
+  it('still opens version 1 links', () => {
+    // version 1, autoplay + invert drag, backdrop 3 (dark), 9 fps, webp, one 3-byte frame
+    const v1 = toBase64Url(new Uint8Array([1, 3, 3, 9, 0, 1, 3, 7, 8, 9]));
+    const decoded = decodeSharePayload(v1);
+    expect(decoded.autoplay).toBe(true);
+    expect(decoded.invertDrag).toBe(true);
+    expect(decoded.matte).toBe('#0a0f1b');
+    expect(decoded.fps).toBe(9);
+    expect(Array.from(decoded.frames[0])).toEqual([7, 8, 9]);
   });
 
   it('adds only a few bytes of overhead on top of the images', () => {
