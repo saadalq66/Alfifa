@@ -1,6 +1,8 @@
 import { canvasToBlob, drawToCanvas, fitWithin, loadBlobImage, supportsWebpEncoding } from '../image';
-import type { RGBAImage } from './flow';
-import type { InterpolateMessage, InterpolateRequest } from './worker';
+import { FLOW_SIZE, type RGBAImage } from './flow';
+import type { GeometryMeasurement, InterpolateMessage, InterpolateRequest, PairGeometry } from './worker';
+
+export type { GeometryMeasurement, PairGeometry } from './worker';
 
 export interface InterpolatedFrames {
   frames: Blob[];
@@ -8,11 +10,18 @@ export interface InterpolatedFrames {
   thumbs: Blob[];
 }
 
-export interface InterpolateOptions {
-  /** Called with 0–1 as this pair's frames are created. */
-  onProgress?: (fraction: number) => void;
+export interface JobOptions {
   /** Asked when the job reaches the front of the queue; false skips it. */
   shouldRun?: () => boolean;
+}
+
+export interface InterpolateOptions extends JobOptions {
+  /** Turn between the two photos, in radians. */
+  angle: number;
+  /** Axis and tilt agreed for the whole sequence; measured from this pair when missing. */
+  geometry?: PairGeometry | null;
+  /** Called with 0–1 as this pair's frames are created. */
+  onProgress?: (fraction: number) => void;
 }
 
 /** Rejection reason for a queued job that was no longer needed when its turn came. */
@@ -27,13 +36,10 @@ export class SkippedError extends Error {
 const STALL_MS = 90_000;
 const THUMB_EDGE = 200;
 
-interface Job extends InterpolateOptions {
-  a: Blob;
-  b: Blob;
-  times: number[];
-  resolve: (result: InterpolatedFrames) => void;
-  reject: (error: Error) => void;
-}
+type Job = { a: Blob; b: Blob; reject: (error: Error) => void } & (
+  | ({ kind: 'geometry'; angle: number; resolve: (result: GeometryMeasurement) => void } & JobOptions)
+  | ({ kind: 'frames'; times: number[]; resolve: (result: InterpolatedFrames) => void } & InterpolateOptions)
+);
 
 const queue: Job[] = [];
 const idle: Worker[] = [];
@@ -51,15 +57,28 @@ function poolSize(): number {
   return Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
 }
 
+/** Measures the turning axis and camera tilt from one pair of photos. Jobs are queued. */
+export function measureGeometry(
+  a: Blob,
+  b: Blob,
+  angle: number,
+  options: JobOptions = {},
+): Promise<GeometryMeasurement> {
+  return new Promise((resolve, reject) => {
+    queue.push({ kind: 'geometry', a, b, angle, ...options, resolve, reject });
+    pump();
+  });
+}
+
 /** Creates the frames between two photos at the given times (0–1). Jobs are queued. */
 export function interpolatePair(
   a: Blob,
   b: Blob,
   times: number[],
-  options: InterpolateOptions = {},
+  options: InterpolateOptions,
 ): Promise<InterpolatedFrames> {
   return new Promise((resolve, reject) => {
-    queue.push({ a, b, times, ...options, resolve, reject });
+    queue.push({ kind: 'frames', a, b, times, ...options, resolve, reject });
     pump();
   });
 }
@@ -73,7 +92,10 @@ function pump() {
     }
     running++;
     run(job)
-      .then(job.resolve, (error: unknown) => job.reject(error instanceof Error ? error : new Error(String(error))))
+      .then(
+        (result) => (job.resolve as (value: unknown) => void)(result),
+        (error: unknown) => job.reject(error instanceof Error ? error : new Error(String(error))),
+      )
       .finally(() => {
         running--;
         // Next task, so callers react to this result (e.g. stop wanting the
@@ -83,19 +105,25 @@ function pump() {
   }
 }
 
-async function run(job: Job): Promise<InterpolatedFrames> {
-  const a = await decode(job.a);
+async function run(job: Job): Promise<GeometryMeasurement | InterpolatedFrames> {
+  // Geometry is measured on small copies; frames need the full photos.
+  const maxEdge = job.kind === 'geometry' ? FLOW_SIZE : undefined;
+  const a = await decode(job.a, undefined, undefined, maxEdge);
   const b = await decode(job.b, a.width, a.height);
   // Cut-outs need transparency; photos are smaller as JPEG.
   const alpha = job.a.type === 'image/png' || job.b.type === 'image/png';
   const worker = idle.pop() ?? new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-  const steps = 2 + job.times.length;
+  const steps = job.kind === 'frames' ? 2 + job.times.length : 1;
   let done = 0;
-  const step = () => job.onProgress?.(++done / steps);
+  const step = () => {
+    done++;
+    if (job.kind === 'frames') job.onProgress?.(done / steps);
+  };
 
   return new Promise((resolve, reject) => {
     const frames: Blob[] = [];
     const thumbs: Blob[] = [];
+    let measurement: GeometryMeasurement | null = null;
     let encoding = Promise.resolve();
     let encodeError: unknown = null;
     let settled = false;
@@ -110,7 +138,7 @@ async function run(job: Job): Promise<InterpolatedFrames> {
       if (keepWorker) idle.push(worker);
       else worker.terminate();
       if (error) reject(error instanceof Error ? error : new Error(String(error)));
-      else resolve({ frames, thumbs });
+      else resolve(measurement ?? { frames, thumbs });
     };
     const watch = () => {
       clearTimeout(timer);
@@ -124,7 +152,11 @@ async function run(job: Job): Promise<InterpolatedFrames> {
       const message = event.data;
       watch();
       switch (message.type) {
-        case 'flow':
+        case 'geometry':
+          measurement = message.measurement;
+          settle(null, true);
+          break;
+        case 'motion':
           step();
           break;
         case 'frame': {
@@ -155,27 +187,36 @@ async function run(job: Job): Promise<InterpolatedFrames> {
     };
 
     watch();
-    const request: InterpolateRequest = { a, b, times: job.times };
+    const request: InterpolateRequest =
+      job.kind === 'geometry'
+        ? { kind: 'geometry', a, b, angle: job.angle }
+        : { kind: 'frames', a, b, times: job.times, angle: job.angle, geometry: job.geometry ?? null };
     worker.postMessage(request, [a.data.buffer as ArrayBuffer, b.data.buffer as ArrayBuffer]);
   });
 }
 
-/** Decodes to straight RGBA pixels, resized when a size is given. */
-async function decode(blob: Blob, width?: number, height?: number): Promise<RGBAImage> {
+/** Decodes to straight RGBA pixels, at the given size or fitted within `maxEdge`. */
+async function decode(blob: Blob, width?: number, height?: number, maxEdge?: number): Promise<RGBAImage> {
   let source: ImageBitmap | HTMLImageElement;
   try {
     source = await createImageBitmap(blob);
   } catch {
     source = await loadBlobImage(blob);
   }
-  const w = width ?? (source instanceof HTMLImageElement ? source.naturalWidth : source.width);
-  const h = height ?? (source instanceof HTMLImageElement ? source.naturalHeight : source.height);
+  const natural = {
+    width: source instanceof HTMLImageElement ? source.naturalWidth : source.width,
+    height: source instanceof HTMLImageElement ? source.naturalHeight : source.height,
+  };
+  const fitted = maxEdge ? fitWithin(natural.width, natural.height, maxEdge) : natural;
+  const w = width ?? fitted.width;
+  const h = height ?? fitted.height;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   try {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('Canvas is not available in this browser.');
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(source, 0, 0, w, h);
     return { width: w, height: h, data: ctx.getImageData(0, 0, w, h).data };
   } finally {
