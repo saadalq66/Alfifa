@@ -23,6 +23,11 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
   rotation speed, drag direction and backdrop settings.
 - **Share Project** — a view-only link and an `<iframe>` embed code. Opening the
   link shows *only* the viewer, full-bleed, ready to embed on other sites.
+- **Download Video** — renders the spin as an MP4 (H.264) in the browser with
+  WebCodecs: 1–3 full turns at 720p or 1080p, 30 fps, using the studio's
+  backdrop and rotation speed. You get a preview, a download button and, on
+  phones, "Share or save to Photos". Browsers that cannot encode H.264 get a
+  WebM (VP9) file instead.
 - **Export Project** — a ZIP with every processed frame (PNG cut-outs or the
   original JPEGs), a `spin.json` manifest and a dependency-free `index.html`
   viewer, so the folder can be hosted as-is.
@@ -118,6 +123,7 @@ src/
     SpinViewer.tsx         React wrapper: stage, overlays and controls
     FrameGrid.tsx          sortable thumbnail grid (dnd-kit)
     ShareModal.tsx         link quality, preview, link + embed code
+    VideoModal.tsx         video length/resolution, render progress, preview + download
     Studio.tsx, Dropzone.tsx, Modal.tsx, Toast.tsx, ui.tsx, landing/
   hooks/
     useFrames.ts           ordered frame list and object-URL lifecycle
@@ -129,6 +135,7 @@ src/
     share.ts               frame re-encoding, link and embed generation
     backdrops.ts           backdrop definitions shared by CSS, canvas and export
     exportZip.ts           ZIP export with a standalone viewer
+    video.ts, videoPlan.ts MP4/WebM rendering (mediabunny + WebCodecs) and its timing maths
     bgRemoval/             Web Worker + client for @imgly/background-removal
     sample.ts              procedural sample product
 ```
