@@ -3,19 +3,21 @@ import {
   ArrowDownAZ,
   ArrowDownUp,
   ArrowLeftRight,
+  CircleCheck,
   Download,
   Film,
-  Sparkles,
   Gauge,
+  Hourglass,
   ImagePlus,
   RefreshCw,
   Share2,
+  Sparkles,
   Trash,
   TriangleAlert,
   Wand,
 } from 'lucide-react';
 import { useBackgroundRemoval, type ModelState } from '../hooks/useBackgroundRemoval';
-import { useInBetweenFrames, type Photo } from '../hooks/useInBetweenFrames';
+import { useInBetweenFrames, type FillStatus, type Photo, type SequenceItem } from '../hooks/useInBetweenFrames';
 import { MIN_PHOTOS, TARGET_FRAMES } from '../lib/interpolate/plan';
 import type { FrameStore } from '../hooks/useFrames';
 import { downloadBlob, exportFilename, exportProjectZip } from '../lib/exportZip';
@@ -68,12 +70,13 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
         key: `${f.id}:${removeBackgrounds && f.cutout ? 'cut' : 'photo'}`,
         blob: displayBlob(f, removeBackgrounds),
         url: displayUrl(f, removeBackgrounds),
+        thumbUrl: removeBackgrounds && f.cutout ? f.cutout.thumbUrl : f.thumbUrl,
       })),
     // photoKey changes exactly when any photo's displayed image changes.
     [photoKey],
   );
-  // Generate in-between frames once imports and background removal have settled.
-  const fill = useInBetweenFrames(photos, fillFrames && !importing && !bg.processing);
+  // New in-between frames wait until imports and background removal have settled.
+  const fill = useInBetweenFrames(photos, fillFrames, !!importing || bg.processing);
   const sequence = fill.sequence;
   const canFill = frames.length >= MIN_PHOTOS && frames.length < TARGET_FRAMES;
 
@@ -100,7 +103,7 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
     ? 'Wait for the import to finish'
     : bg.processing
       ? 'Wait for background removal to finish'
-      : fill.generating
+      : fill.status.kind === 'working'
         ? 'Wait for the in-between frames to be created'
         : null;
 
@@ -283,10 +286,9 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
                 <span className="inline-flex items-center gap-1.5 font-medium text-sky-700">
                   <Spinner className="h-3 w-3" /> Importing {importing.done} / {importing.total}…
                 </span>
-              ) : fill.generating ? (
+              ) : fill.status.kind === 'working' ? (
                 <span className="inline-flex items-center gap-1.5 font-medium text-sky-700">
-                  <Spinner className="h-3 w-3" /> Creating in-between frames… {fill.generating.done} /{' '}
-                  {fill.generating.total}
+                  <Spinner className="h-3 w-3" /> Creating in-between frames… {Math.round(fill.status.progress * 100)}%
                 </span>
               ) : (
                 <>
@@ -326,13 +328,16 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
                   <Sparkles className="h-4 w-4 text-sky-600" /> Fill in to {TARGET_FRAMES}+ frames
                 </span>
               }
-              description={
-                fill.failed
-                  ? 'Couldn’t create in-between frames for these photos — the spin uses your photos only.'
-                  : perPhoto > 1
-                    ? `${frames.length} photos + ${sequence.length - frames.length} in-between frames, created from the motion between neighbouring photos. More photos still look best.`
-                    : `${frames.length} photos make a jumpy spin. In-between frames are created from the motion between neighbouring photos.`
-              }
+              description={`${frames.length} photos make a jumpy spin. This creates extra frames from the motion between neighbouring photos, so it turns smoothly. More photos still look best.`}
+            />
+            <FillProgress
+              status={fill.status}
+              waitingFor={importing ? 'the import' : 'background removal'}
+              sequence={sequence}
+              current={current}
+              aspect={first.width / first.height}
+              onSelect={(index) => viewer.current?.goTo(index)}
+              onRetry={fill.retry}
             />
           </div>
         )}
@@ -365,6 +370,101 @@ export function Studio({ store, onBrowse, onFiles, onSample }: StudioProps) {
       />
     </div>
   );
+}
+
+function FillProgress({
+  status,
+  waitingFor,
+  sequence,
+  current,
+  aspect,
+  onSelect,
+  onRetry,
+}: {
+  status: FillStatus;
+  waitingFor: string;
+  sequence: SequenceItem[];
+  current: number;
+  aspect: number;
+  onSelect: (index: number) => void;
+  onRetry: () => void;
+}) {
+  switch (status.kind) {
+    case 'off':
+      return null;
+    case 'waiting':
+      return (
+        <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-slate-600" aria-live="polite">
+          <Hourglass className="h-3.5 w-3.5 text-sky-600" /> Starts as soon as {waitingFor} finishes.
+        </p>
+      );
+    case 'working':
+      return (
+        <div className="mt-3 space-y-1.5" aria-live="polite">
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 font-medium text-sky-800">
+              <Spinner className="h-3 w-3" /> Creating in-between frames…
+            </span>
+            <span className="tabular-nums text-slate-500">{Math.round(status.progress * 100)}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white ring-1 ring-sky-100">
+            <div
+              className="h-full rounded-full bg-sky-500 transition-[width] duration-300"
+              style={{ width: `${Math.max(3, status.progress * 100)}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-slate-500">Made on your device — this can take a minute on phones.</p>
+        </div>
+      );
+    case 'failed':
+      return (
+        <div className="mt-3 rounded-xl bg-red-50 p-3 text-xs text-red-700" role="alert">
+          <p className="flex items-center gap-1.5 font-semibold">
+            <TriangleAlert className="h-3.5 w-3.5" /> Couldn’t create the in-between frames
+          </p>
+          <p className="mt-1 leading-relaxed text-red-600/90">
+            {status.message} Until then the spin uses your photos only.
+          </p>
+          <Button size="sm" variant="secondary" className="mt-2" onClick={onRetry} icon={<RefreshCw className="h-3.5 w-3.5" />}>
+            Try again
+          </Button>
+        </div>
+      );
+    case 'ready':
+      return (
+        <div className="mt-3 space-y-2">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-700" aria-live="polite">
+            <CircleCheck className="h-3.5 w-3.5" /> {status.added} in-between frames created · {sequence.length} frames
+            in the spin
+          </p>
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pt-0.5 pb-1.5" aria-label="All frames of the spin">
+            {sequence.map((item, index) => (
+              <button
+                key={item.url}
+                type="button"
+                onClick={() => onSelect(index)}
+                title={item.generated ? `Frame ${index + 1} · created` : `Frame ${index + 1} · photo ${item.photoIndex + 1}`}
+                aria-label={`Show frame ${index + 1}${item.generated ? ' (created)' : ''}`}
+                aria-current={index === current || undefined}
+                className={cx(
+                  'relative h-11 shrink-0 overflow-hidden rounded-md bg-white transition',
+                  index === current ? 'ring-2 ring-sky-500' : item.generated ? 'ring-1 ring-sky-200' : 'ring-1 ring-slate-300',
+                )}
+                style={{ aspectRatio: aspect }}
+              >
+                <img src={item.thumbUrl} alt="" draggable={false} className="h-full w-full object-contain" />
+                {item.generated && (
+                  <Sparkles className="absolute top-0.5 right-0.5 h-2.5 w-2.5 text-sky-500 drop-shadow-[0_0_1px_white]" />
+                )}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-500">
+            <Sparkles className="inline h-2.5 w-2.5 text-sky-500" /> marks a created frame. Tap any frame to show it.
+          </p>
+        </div>
+      );
+  }
 }
 
 function Panel({ children }: { children: ReactNode }) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateFlow, projectFlow, synthesize, toGray, type RGBAImage } from './flow';
+import { estimateFlow, premultiplyImage, projectFlow, synthesize, toGray, type RGBAImage } from './flow';
 
 const W = 200;
 const H = 150;
@@ -92,5 +92,15 @@ describe('synthesize', () => {
     const mid = synthesize(a, b, flowAB, flowBA, 0.5);
     expect(mid[(10 * W + 10) * 4 + 3]).toBe(0);
     expect(mid[(75 * W + 98) * 4 + 3]).toBe(255);
+  });
+
+  it('gives the same result from photos premultiplied once per pair', () => {
+    const a = scene(0, true);
+    const b = scene(16, true);
+    const flowAB = estimateFlow(toGray(a, W), toGray(b, W));
+    const flowBA = estimateFlow(toGray(b, W), toGray(a, W));
+    const direct = synthesize(a, b, flowAB, flowBA, 0.25);
+    const prepared = synthesize(premultiplyImage(a), premultiplyImage(b), flowAB, flowBA, 0.25);
+    expect(prepared).toEqual(direct);
   });
 });

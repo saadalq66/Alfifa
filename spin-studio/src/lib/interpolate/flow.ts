@@ -143,11 +143,27 @@ function median3(src: Float32Array, w: number, h: number): Float32Array {
         const yy = Math.min(h - 1, Math.max(0, y + dy)) * w;
         for (let dx = -1; dx <= 1; dx++) win[n++] = src[yy + Math.min(w - 1, Math.max(0, x + dx))];
       }
-      win.sort();
-      out[y * w + x] = win[4];
+      out[y * w + x] = median9(win);
     }
   }
   return out;
+}
+
+// Compare-and-swap pairs of a sorting network that leaves the median of 9 at index 4.
+const MEDIAN9 = [1, 2, 4, 5, 7, 8, 0, 1, 3, 4, 6, 7, 1, 2, 4, 5, 7, 8, 0, 3, 5, 8, 4, 7, 3, 6, 1, 4, 2, 5, 4, 7, 4, 2, 6, 4, 4, 2];
+
+/** Median of 9 values (reorders `p`); far faster than sorting them. */
+function median9(p: Float32Array): number {
+  for (let k = 0; k < MEDIAN9.length; k += 2) {
+    const i = MEDIAN9[k];
+    const j = MEDIAN9[k + 1];
+    if (p[i] > p[j]) {
+      const t = p[i];
+      p[i] = p[j];
+      p[j] = t;
+    }
+  }
+  return p[4];
 }
 
 function parabola(a: number | undefined, b: number, c: number | undefined): number {
@@ -238,6 +254,7 @@ function hornSchunck(a: Float32Array, b: Float32Array, w: number, h: number, flo
   const dv = new Float32Array(n);
   const alpha2 = HS_ALPHA * HS_ALPHA;
   const still2 = HS_STILL * HS_STILL;
+  const shrink = alpha2 / (alpha2 + still2);
 
   for (let warp = 0; warp < HS_WARPS; warp++) {
     // Linearise around the current flow: compare a with b warped back onto a.
@@ -272,7 +289,6 @@ function hornSchunck(a: Float32Array, b: Float32Array, w: number, h: number, flo
           const r = row + Math.min(w - 1, x + 1);
           // Smoothness acts on the total flow (u + du), not just the increment.
           // Neighbour average of the total flow, shrunk towards zero by the stillness prior.
-          const shrink = alpha2 / (alpha2 + still2);
           const totalU = ((u[l] + du[l] + u[r] + du[r] + u[up + x] + du[up + x] + u[down + x] + du[down + x]) / 4) * shrink;
           const totalV = ((v[l] + dv[l] + v[r] + dv[r] + v[up + x] + dv[up + x] + v[down + x] + dv[down + x]) / 4) * shrink;
           const avgU = totalU - u[i];
@@ -463,27 +479,28 @@ export function projectFlow(f: Flow, t: number): ProjectedFlow {
   const u = new Float32Array(n);
   const v = new Float32Array(n);
   const weight = new Float32Array(n);
+  const splat = (xx: number, yy: number, wt: number, du: number, dv: number) => {
+    if (xx < 0 || yy < 0 || xx >= w || yy >= h || wt <= 0) return;
+    const j = yy * w + xx;
+    u[j] -= wt * du;
+    v[j] -= wt * dv;
+    weight[j] += wt;
+  };
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      const tx = x + t * f.u[i];
-      const ty = y + t * f.v[i];
+      const du = t * f.u[i];
+      const dv = t * f.v[i];
+      const tx = x + du;
+      const ty = y + dv;
       const x0 = Math.floor(tx);
       const y0 = Math.floor(ty);
       const ax = tx - x0;
       const ay = ty - y0;
-      for (const [xx, yy, wt] of [
-        [x0, y0, (1 - ax) * (1 - ay)],
-        [x0 + 1, y0, ax * (1 - ay)],
-        [x0, y0 + 1, (1 - ax) * ay],
-        [x0 + 1, y0 + 1, ax * ay],
-      ] as const) {
-        if (xx < 0 || yy < 0 || xx >= w || yy >= h || wt <= 0) continue;
-        const j = yy * w + xx;
-        u[j] -= wt * t * f.u[i];
-        v[j] -= wt * t * f.v[i];
-        weight[j] += wt;
-      }
+      splat(x0, y0, (1 - ax) * (1 - ay), du, dv);
+      splat(x0 + 1, y0, ax * (1 - ay), du, dv);
+      splat(x0, y0 + 1, (1 - ax) * ay, du, dv);
+      splat(x0 + 1, y0 + 1, ax * ay, du, dv);
     }
   }
   // Where a surface stretches, pushed pixels land unevenly (alternate columns
@@ -492,26 +509,49 @@ export function projectFlow(f: Flow, t: number): ProjectedFlow {
   const su = boxBlur(boxBlur(u, w, h, 1), w, h, 1);
   const sv = boxBlur(boxBlur(v, w, h, 1), w, h, 1);
   const sw = boxBlur(boxBlur(weight, w, h, 1), w, h, 1);
-  u.set(su);
-  v.set(sv);
-  weight.set(sw);
   for (let j = 0; j < n; j++) {
-    if (weight[j] > 1e-3) {
-      u[j] /= weight[j];
-      v[j] /= weight[j];
+    if (sw[j] > 1e-3) {
+      su[j] /= sw[j];
+      sv[j] /= sw[j];
     } else {
       // Nothing landed here: fall back to the plain linear estimate.
-      u[j] = -t * f.u[j];
-      v[j] = -t * f.v[j];
+      su[j] = -t * f.u[j];
+      sv[j] = -t * f.v[j];
     }
   }
-  return { width: w, height: h, u, v, weight };
+  return { width: w, height: h, u: su, v: sv, weight: sw };
 }
 
-/** Renders the in-between image at time `t` (0 = a, 1 = b). */
+/** An image whose colour channels are already multiplied by alpha. */
+export interface PremultipliedImage extends RGBAImage {
+  premultiplied: true;
+}
+
+/**
+ * Premultiplies once, so a pair of photos can be reused for every in-between
+ * frame. Blending premultiplied colour keeps cut-out edges free of dark fringes.
+ */
+export function premultiplyImage(image: RGBAImage): PremultipliedImage {
+  const { width, height, data } = image;
+  const out = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3] / 255;
+    out[i] = data[i] * a;
+    out[i + 1] = data[i + 1] * a;
+    out[i + 2] = data[i + 2] * a;
+    out[i + 3] = data[i + 3];
+  }
+  return { width, height, data: out, premultiplied: true };
+}
+
+function premultiplied(image: RGBAImage | PremultipliedImage): Uint8ClampedArray {
+  return 'premultiplied' in image ? image.data : premultiplyImage(image).data;
+}
+
+/** Renders the in-between image at time `t` (0 = a, 1 = b), as straight RGBA. */
 export function synthesize(
-  a: RGBAImage,
-  b: RGBAImage,
+  a: RGBAImage | PremultipliedImage,
+  b: RGBAImage | PremultipliedImage,
   flowAB: Flow,
   flowBA: Flow,
   t: number,
@@ -519,19 +559,19 @@ export function synthesize(
   const { width, height } = a;
   const toA = projectFlow(flowAB, t);
   const toB = projectFlow(flowBA, 1 - t);
-  const pa = premultiply(a.data);
-  const pb = premultiply(b.data);
+  const pa = premultiplied(a);
+  const pb = premultiplied(b);
   const out = new Uint8ClampedArray(width * height * 4);
-  const sx = toA.width / width;
-  const sy = toA.height / height;
+  const fw = toA.width;
+  const fh = toA.height;
+  const sx = fw / width;
+  const sy = fh / height;
   const sampleA = new Float32Array(4);
   const sampleB = new Float32Array(4);
 
   // Where do the two warped photos disagree? Measured on the coarse grid and
   // blurred, so the choice between them is made per region, not per pixel
   // (per-pixel choices flicker into stripes).
-  const fw = toA.width;
-  const fh = toA.height;
   let disagree: Float32Array = new Float32Array(fw * fh);
   for (let gy = 0; gy < fh; gy++) {
     for (let gx = 0; gx < fw; gx++) {
@@ -550,12 +590,41 @@ export function synthesize(
   }
   disagree = boxBlur(boxBlur(disagree, fw, fh, 2), fw, fh, 2);
 
+  // Every output pixel samples the coarse grids at the same column positions,
+  // so the bilinear taps are computed once per column and once per row.
+  const col0 = new Int32Array(width);
+  const col1 = new Int32Array(width);
+  const colA = new Float32Array(width);
+  for (let x = 0; x < width; x++) {
+    const fx = Math.min(fw - 1, Math.max(0, (x + 0.5) * sx - 0.5));
+    col0[x] = Math.floor(fx);
+    col1[x] = Math.min(fw - 1, col0[x] + 1);
+    colA[x] = fx - col0[x];
+  }
+
   for (let y = 0; y < height; y++) {
-    const fy = (y + 0.5) * sy - 0.5;
+    const fy = Math.min(fh - 1, Math.max(0, (y + 0.5) * sy - 0.5));
+    const y0 = Math.floor(fy);
+    const row0 = y0 * fw;
+    const row1 = Math.min(fh - 1, y0 + 1) * fw;
+    const ay = fy - y0;
     for (let x = 0; x < width; x++) {
-      const fx = (x + 0.5) * sx - 0.5;
-      const [ua, va, wa] = sampleProjected(toA, fx, fy);
-      const [ub, vb, wb] = sampleProjected(toB, fx, fy);
+      const ax = colA[x];
+      const i00 = row0 + col0[x];
+      const i10 = row0 + col1[x];
+      const i01 = row1 + col0[x];
+      const i11 = row1 + col1[x];
+      const w00 = (1 - ax) * (1 - ay);
+      const w10 = ax * (1 - ay);
+      const w01 = (1 - ax) * ay;
+      const w11 = ax * ay;
+      const ua = toA.u[i00] * w00 + toA.u[i10] * w10 + toA.u[i01] * w01 + toA.u[i11] * w11;
+      const va = toA.v[i00] * w00 + toA.v[i10] * w10 + toA.v[i01] * w01 + toA.v[i11] * w11;
+      const wa = toA.weight[i00] * w00 + toA.weight[i10] * w10 + toA.weight[i01] * w01 + toA.weight[i11] * w11;
+      const ub = toB.u[i00] * w00 + toB.u[i10] * w10 + toB.u[i01] * w01 + toB.u[i11] * w11;
+      const vb = toB.v[i00] * w00 + toB.v[i10] * w10 + toB.v[i01] * w01 + toB.v[i11] * w11;
+      const wb = toB.weight[i00] * w00 + toB.weight[i10] * w10 + toB.weight[i01] * w01 + toB.weight[i11] * w11;
+      const dis = disagree[i00] * w00 + disagree[i10] * w10 + disagree[i01] * w01 + disagree[i11] * w11;
       bilinear(pa, width, height, x + ua / sx, y + va / sy, sampleA);
       bilinear(pb, width, height, x + ub / sx, y + vb / sy, sampleB);
       // Each photo counts more the closer we are to it in time, and only where
@@ -569,7 +638,7 @@ export function synthesize(
         w1 = t;
       }
       // Where the two warped photos disagree, hand the region to one of them.
-      const select = smoothstep(8, 24, sampleGray(disagree, fw, fh, fx, fy));
+      const select = smoothstep(8, 24, dis);
       if (select > 0) {
         const nearA = (1 - t) * (visA > 0.3 ? 1 : visA) >= t * (visB > 0.3 ? 1 : visB);
         const sum = w0 + w1;
@@ -592,34 +661,6 @@ export function synthesize(
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
-}
-
-function sampleProjected(f: ProjectedFlow, x: number, y: number): [number, number, number] {
-  const x0 = Math.min(f.width - 1, Math.max(0, Math.floor(x)));
-  const y0 = Math.min(f.height - 1, Math.max(0, Math.floor(y)));
-  const x1 = Math.min(f.width - 1, x0 + 1);
-  const y1 = Math.min(f.height - 1, y0 + 1);
-  const ax = Math.min(1, Math.max(0, x - x0));
-  const ay = Math.min(1, Math.max(0, y - y0));
-  const i00 = y0 * f.width + x0;
-  const i10 = y0 * f.width + x1;
-  const i01 = y1 * f.width + x0;
-  const i11 = y1 * f.width + x1;
-  const lerp = (a: Float32Array) =>
-    (a[i00] * (1 - ax) + a[i10] * ax) * (1 - ay) + (a[i01] * (1 - ax) + a[i11] * ax) * ay;
-  return [lerp(f.u), lerp(f.v), lerp(f.weight)];
-}
-
-function premultiply(data: Uint8ClampedArray): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(data.length);
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3] / 255;
-    out[i] = data[i] * a;
-    out[i + 1] = data[i + 1] * a;
-    out[i + 2] = data[i + 2] * a;
-    out[i + 3] = data[i + 3];
-  }
-  return out;
 }
 
 function bilinear(data: Uint8ClampedArray, w: number, h: number, x: number, y: number, out: Float32Array) {
