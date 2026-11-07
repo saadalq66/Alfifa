@@ -20,10 +20,12 @@ for free on GitHub Pages, Vercel, Netlify or any static file host.
   studio generates in-between frames for every neighbouring pair, including
   last → first, so the spin reaches at least 24 frames and turns smoothly
   instead of jumping. Frames are synthesised from the motion between the two
-  photos (see below), in a Web Worker; your photos stay the editable sequence
+  photos (see below), in Web Workers; your photos stay the editable sequence
   and generated frames follow automatically when you reorder or add photos.
-  It can be switched off, and the share link, video and ZIP all include the
-  generated frames (marked as such in `spin.json`).
+  A progress bar shows while they are made (with Remove Backgrounds on, they
+  start once the cut-outs are done), then a strip of every frame with the
+  created ones marked. It can be switched off, and the share link, video and
+  ZIP all include the generated frames (marked as such in `spin.json`).
 - **Remove Backgrounds** — one switch cuts the object out of every frame with
   [`@imgly/background-removal`](https://github.com/imgly/background-removal-js),
   running in a Web Worker (WebGPU when available, WASM otherwise) so the UI stays
